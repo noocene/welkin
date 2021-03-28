@@ -182,6 +182,11 @@ impl Compile<AbsolutePath> for Data {
                 ty_resolver = ty_resolver.descend(Some(arg.clone()));
             }
 
+            for (arg, _) in &variant.inhabitants {
+                ty_resolver = ty_resolver.descend(None);
+                ty_resolver = ty_resolver.descend(Some(arg.clone()));
+            }
+
             for arg in &self.type_arguments {
                 ty = Box::new(CoreTerm::Apply {
                     erased: true,
@@ -196,6 +201,8 @@ impl Compile<AbsolutePath> for Data {
             }
 
             for (_, ity) in variant.inhabitants.iter().rev() {
+                ty_resolver = ty_resolver.ascend().ascend();
+
                 ty = Box::new(CoreTerm::Function {
                     erased: false,
                     return_type: ty,
