@@ -1,12 +1,13 @@
 use combine::{choice, many, optional, parser, Parser, Stream};
 
 pub mod term;
+pub use term::Term;
 mod util;
 
-use term::{term, Context, Term};
+use term::{term, Context};
 use util::{comma_separated, delimited, ident, ident_list, string, token};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident(pub String);
 
 #[derive(Debug, Clone)]

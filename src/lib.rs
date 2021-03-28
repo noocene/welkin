@@ -6,7 +6,7 @@ use hash::{Hash, ReferenceHash};
 pub mod definitions;
 pub mod parser;
 
-pub mod compile;
+pub mod compiler;
 
 mod sealed {
     use super::Term;

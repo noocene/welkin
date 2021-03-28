@@ -14,14 +14,19 @@ use super::{
 
 mod application;
 use application::application;
+mod lambda;
+use lambda::lambda;
+mod duplicate;
+use duplicate::duplicate;
 mod block;
-use block::{block, block_keyword, Block};
+pub use block::Block;
+use block::{block, block_keyword};
 
 #[derive(Debug, Clone)]
 pub enum Term {
     Universe,
     Lambda {
-        arguments: Vec<Ident>,
+        argument: Ident,
         body: Box<Term>,
     },
     Reference(Path),
@@ -29,6 +34,13 @@ pub enum Term {
         function: Box<Term>,
         arguments: Vec<Term>,
     },
+    Duplicate {
+        binding: Ident,
+        expression: Box<Term>,
+        body: Box<Term>,
+    },
+    Wrap(Box<Term>),
+    Put(Box<Term>),
     Block(Block),
     Function {
         argument_binding: Option<Ident>,
@@ -67,12 +79,29 @@ parser! {
     {
 
         let group = group_or_ident(context.clone());
-        group.skip(spaces()).then(|group| {
-            choice!(
+        let parser = group.skip(spaces()).then(|group| {
+            let choice = choice!(
                 next_token_is('[').with(application(group.clone(), context.clone())),
-                value(group)
-            )
-        })
+                value(group.clone())
+            );
+
+            if let Term::Reference(path) = &group {
+                if path.0.len() == 1 {
+                    Either::Left(
+                        bare_string("=>")
+                            .with(lambda(path.0.first().unwrap().clone(), context.clone()))
+                            .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone())))
+                            .or(choice)
+                        )
+                } else {
+                    Either::Right(choice)
+                }
+            } else {
+                Either::Right(choice)
+            }
+        });
+        let parser = parser.or(bare_token('\'').with(term(context.clone()).map(Box::new).map(Term::Wrap)));
+        parser.or(bare_token('>').with(term(context.clone()).map(Box::new).map(Term::Put)))
     }
 }
 
@@ -98,7 +127,7 @@ where
         spaces()
             .with(term_fragment(context).map(Box::new))
             .skip(spaces())
-            .and(optional(bare_string("as").with(ident())))
+            .and(optional(bare_string("~as").with(ident())))
             .skip(spaces()),
         bare_string("->"),
     )
