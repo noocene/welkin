@@ -1,0 +1,4 @@
+data Bool {
+    true,
+    false
+}
