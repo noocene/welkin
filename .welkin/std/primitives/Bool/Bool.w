@@ -1,4 +1,4 @@
-data Bool {
+~data Bool {
     true,
     false
 }
