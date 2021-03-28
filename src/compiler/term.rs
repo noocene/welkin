@@ -49,7 +49,7 @@ impl Compile<AbsolutePath> for Term {
                 let mut term = CoreTerm::Apply {
                     function,
                     argument,
-                    erased: false,
+                    erased: true,
                 };
                 while let Some(argument) = arguments.next() {
                     term = CoreTerm::Apply {

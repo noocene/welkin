@@ -16,7 +16,7 @@ pub struct Path(pub Vec<Ident>);
 #[derive(Debug, Clone)]
 pub struct Variant {
     pub ident: Ident,
-    pub inhabitants: Vec<Term>,
+    pub inhabitants: Vec<(Ident, Term)>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +58,7 @@ parser! {
     {
         (
             ident(),
-            optional(delimited('(', ')', comma_separated(term(context.clone())))),
+            optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()))))),
         )
             .map(|(ident, inhabitants)| Variant {
                 ident,
