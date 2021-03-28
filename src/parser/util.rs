@@ -10,7 +10,7 @@ pub fn bare_ident<Input>() -> impl Parser<Input, Output = Ident>
 where
     Input: Stream<Token = char>,
 {
-    many1(letter()).map(Ident)
+    many1(letter().or(bare_token('_'))).map(Ident)
 }
 
 pub fn bare_path<Input>() -> impl Parser<Input, Output = Path>
@@ -31,7 +31,11 @@ pub fn ident_list<Input>() -> impl Parser<Input, Output = Vec<Ident>>
 where
     Input: Stream<Token = char>,
 {
-    spaces().with(many(many1(letter()).skip(spaces()).map(Ident)))
+    spaces().with(many(
+        many1(letter().or(bare_token('_')))
+            .skip(spaces())
+            .map(Ident),
+    ))
 }
 
 pub fn token<Input>(c: char) -> impl Parser<Input, Output = char>
