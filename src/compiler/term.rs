@@ -42,6 +42,7 @@ impl Compile<AbsolutePath> for Term {
             Term::Application {
                 function,
                 arguments,
+                erased,
             } => {
                 let function = Box::new(function.compile(resolver.proceed()));
                 let mut arguments = arguments.into_iter();
@@ -49,12 +50,12 @@ impl Compile<AbsolutePath> for Term {
                 let mut term = CoreTerm::Apply {
                     function,
                     argument,
-                    erased: true,
+                    erased: erased,
                 };
                 while let Some(argument) = arguments.next() {
                     term = CoreTerm::Apply {
                         function: Box::new(term),
-                        erased: false,
+                        erased: erased,
                         argument: Box::new(argument.compile(resolver.proceed())),
                     };
                 }

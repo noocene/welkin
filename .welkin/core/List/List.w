@@ -1,4 +1,4 @@
 ~data List A {
     nil,
-    cons(head: A, tail: List[A])
+    cons(head: A, tail: List{A})
 }

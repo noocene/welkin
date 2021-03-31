@@ -1,5 +1,5 @@
 use combine::{
-    choice, look_ahead, optional, parser,
+    attempt, choice, look_ahead, optional, parser,
     parser::{
         char::{spaces, string as bare_string},
         combinator::Either,
@@ -8,7 +8,7 @@ use combine::{
 };
 
 use super::{
-    util::{bare_path, delimited, ident},
+    util::{bare_path, delimited, ident, string},
     Ident, Path,
 };
 
@@ -32,6 +32,7 @@ pub enum Term {
     Reference(Path),
     Application {
         function: Box<Term>,
+        erased: bool,
         arguments: Vec<Term>,
     },
     Duplicate {
@@ -81,7 +82,8 @@ parser! {
         let group = group_or_ident(context.clone());
         let parser = group.skip(spaces()).then(|group| {
             let choice = choice!(
-                next_token_is('[').with(application(group.clone(), context.clone())),
+                next_token_is('{').with(application(true, group.clone(), context.clone())),
+                next_token_is('[').with(application(false, group.clone(), context.clone())),
                 value(group.clone())
             );
 
@@ -100,7 +102,7 @@ parser! {
                 Either::Right(choice)
             }
         });
-        let parser = parser.or(bare_token('\'').with(term(context.clone()).map(Box::new).map(Term::Wrap)));
+        let parser = parser.or(bare_token('\'').with(term_fragment(context.clone()).map(Box::new).map(Term::Wrap)));
         parser.or(bare_token('>').with(term(context.clone()).map(Box::new).map(Term::Put)))
     }
 }
@@ -127,9 +129,8 @@ where
         spaces()
             .with(term_fragment(context).map(Box::new))
             .skip(spaces())
-            .and(optional(bare_string("~as").with(ident())))
-            .skip(spaces()),
-        bare_string("->"),
+            .and(optional(attempt(bare_string("~as")).with(ident()))),
+        string("->"),
     )
     .then(move |data: Vec<_>| {
         let mut argument_types = data.into_iter().rev();

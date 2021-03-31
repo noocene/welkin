@@ -109,7 +109,7 @@ where
 {
     (
         ident().skip(token(':')),
-        term(context.clone()).skip(token('=')),
+        term(context.clone()),
         term(context),
     )
         .map(|(ident, ty, term)| Declaration { ident, ty, term })

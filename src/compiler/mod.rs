@@ -8,7 +8,7 @@ pub mod item;
 pub mod term;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub struct AbsolutePath(Vec<String>);
+pub struct AbsolutePath(pub Vec<String>);
 
 impl Show for AbsolutePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -80,7 +80,9 @@ impl Resolve<Path> for LocalResolver {
                 .map(|id| Resolved::Index(Index(id.0)))
                 .unwrap_or_else(|| Resolved::Canonicalized(self.canonicalize(item.clone())))
         } else {
-            panic!()
+            Resolved::Canonicalized(AbsolutePath(
+                item.0.clone().into_iter().map(|a| a.0).collect(),
+            ))
         })
     }
 
