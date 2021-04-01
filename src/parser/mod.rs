@@ -1,5 +1,5 @@
 use combine::{
-    choice, many, many1, optional, parser,
+    attempt, choice, many, many1, optional, parser,
     parser::char::{letter, spaces},
     token as bare_token, value, Parser, Stream,
 };
@@ -142,7 +142,7 @@ pub fn item<Input>() -> impl Parser<Input, Output = Item>
 where
     Input: Stream<Token = char>,
 {
-    let parser = block_item(Default::default()).map(Item::Block);
+    let parser = attempt(block_item(Default::default()).map(Item::Block));
     let parser = parser.or(declaration(Default::default()).map(Item::Declaration));
     parser
 }

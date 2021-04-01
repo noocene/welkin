@@ -112,13 +112,15 @@ pub struct Context {}
 
 impl Context {}
 
-fn term_fragment<Input>(context: Context) -> impl Parser<Input, Output = Term>
-where
-    Input: Stream<Token = char>,
-{
-    let parser = look_ahead(block_keyword()).with(block(context.clone()).map(Term::Block));
-    let parser = parser.or(recurse(context));
-    parser.or(bare_token('*').with(value(Term::Universe)))
+parser! {
+    fn term_fragment[Input](context: Context)(Input) -> Term
+    where
+         [ Input: Stream<Token = char> ]
+    {
+        let parser = look_ahead(block_keyword()).with(block(context.clone()).map(Term::Block));
+        let parser = parser.or(recurse(context.clone()));
+        parser.or(bare_token('*').with(value(Term::Universe)))
+    }
 }
 
 pub fn term<Input>(context: Context) -> impl Parser<Input, Output = Term>

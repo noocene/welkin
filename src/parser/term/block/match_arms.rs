@@ -13,7 +13,6 @@ use super::Block;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arm {
     pub(crate) expression: Term,
-    pub(crate) binding: Ident,
     pub(crate) introductions: Vec<Ident>,
 }
 
@@ -40,9 +39,8 @@ where
         ),
         token('=').skip(spaces()).with(term_fragment(context)),
     )
-        .map(|((binding, introductions), expression)| Arm {
+        .map(|((_, introductions), expression)| Arm {
             expression,
-            binding,
             introductions,
         })
 }

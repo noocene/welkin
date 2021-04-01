@@ -49,7 +49,6 @@ impl Compile<AbsolutePath> for Match {
                         .clone()
                         .into_iter()
                         .map(|(arm, ty)| Arm {
-                            binding: arm.binding,
                             introductions: arm.introductions,
                             expression: ty,
                         })

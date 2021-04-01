@@ -23,20 +23,30 @@ impl Compile<AbsolutePath> for Data {
         let mut declarations = vec![];
 
         let mut return_type = Box::new(CoreTerm::Universe);
-        let mut resolver = r.proceed();
+        let mut ret_resolver = r.proceed();
 
-        for (arg, ty) in &self.type_arguments {
-            resolver = resolver.descend(Some(arg.clone()));
+        for (arg, _) in self.type_arguments.iter() {
+            ret_resolver = ret_resolver.descend(Some(arg.clone()));
+        }
+
+        for (_, ty) in self.type_arguments.iter().rev() {
             return_type = Box::new(CoreTerm::Function {
                 erased: true,
                 argument_type: Box::new(
                     ty.as_ref()
                         .cloned()
                         .unwrap_or(Term::Universe)
-                        .compile(resolver.proceed()),
+                        .compile(ret_resolver.proceed()),
                 ),
                 return_type,
             });
+            ret_resolver = ret_resolver.ascend().ascend();
+        }
+
+        let mut resolver = r.proceed();
+
+        for (arg, _) in self.type_arguments.iter() {
+            resolver = resolver.descend(Some(arg.clone()));
         }
 
         let self_ident = Ident("~self".into());
