@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use crate::{
     compiler::{term::Compile as _, AbsolutePath, Resolve},
-    parser::{Data, Ident, Path},
+    parser::{Data, Ident, Path, Term},
 };
 
 use super::Compile;
@@ -25,11 +25,16 @@ impl Compile<AbsolutePath> for Data {
         let mut return_type = Box::new(CoreTerm::Universe);
         let mut resolver = r.proceed();
 
-        for arg in &self.type_arguments {
+        for (arg, ty) in &self.type_arguments {
             resolver = resolver.descend(Some(arg.clone()));
             return_type = Box::new(CoreTerm::Function {
                 erased: true,
-                argument_type: Box::new(CoreTerm::Universe),
+                argument_type: Box::new(
+                    ty.as_ref()
+                        .cloned()
+                        .unwrap_or(Term::Universe)
+                        .compile(resolver.proceed()),
+                ),
                 return_type,
             });
         }
@@ -43,7 +48,7 @@ impl Compile<AbsolutePath> for Data {
                 erased: false,
                 argument_type: {
                     let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
-                    for arg in &self.type_arguments {
+                    for (arg, _) in &self.type_arguments {
                         ty = Box::new(CoreTerm::Apply {
                             erased: true,
                             function: ty,
@@ -108,13 +113,13 @@ impl Compile<AbsolutePath> for Data {
                                         Box::new(CoreTerm::Reference(resolver.canonicalize(Path(
                                             vec![self.ident.clone(), variant.ident.clone()],
                                         ))));
-                                    for ty in &self.type_arguments {
+                                    for (arg, _) in &self.type_arguments {
                                         function = Box::new(CoreTerm::Apply {
                                             function,
                                             erased: true,
                                             argument: Box::new(CoreTerm::Variable(
                                                 variant_resolver
-                                                    .resolve(&Path(vec![ty.clone()]))
+                                                    .resolve(&Path(vec![arg.clone()]))
                                                     .unwrap()
                                                     .unwrap_index(),
                                             )),
@@ -177,7 +182,7 @@ impl Compile<AbsolutePath> for Data {
 
             let mut ty_resolver = resolver.proceed();
 
-            for arg in &self.type_arguments {
+            for (arg, _) in &self.type_arguments {
                 ty_resolver = ty_resolver.descend(None);
                 ty_resolver = ty_resolver.descend(Some(arg.clone()));
             }
@@ -187,7 +192,7 @@ impl Compile<AbsolutePath> for Data {
                 ty_resolver = ty_resolver.descend(Some(arg.clone()));
             }
 
-            for arg in &self.type_arguments {
+            for (arg, _) in &self.type_arguments {
                 ty = Box::new(CoreTerm::Apply {
                     erased: true,
                     function: ty,
@@ -210,15 +215,20 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for _ in &self.type_arguments {
+            for (_, t) in &self.type_arguments {
                 ty = Box::new(CoreTerm::Function {
                     erased: true,
                     return_type: ty,
-                    argument_type: Box::new(CoreTerm::Universe),
+                    argument_type: Box::new(
+                        t.as_ref()
+                            .cloned()
+                            .unwrap_or(Term::Universe)
+                            .compile(resolver.proceed()),
+                    ),
                 });
             }
 
-            for arg in &self.type_arguments {
+            for (arg, _) in &self.type_arguments {
                 resolver = resolver.descend(Some(arg.clone()));
             }
 

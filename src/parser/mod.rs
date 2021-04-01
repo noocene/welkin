@@ -1,11 +1,15 @@
-use combine::{choice, many, optional, parser, Parser, Stream};
+use combine::{
+    choice, many, many1, optional, parser,
+    parser::char::{letter, spaces},
+    token as bare_token, value, Parser, Stream,
+};
 
 pub mod term;
 pub use term::Term;
 mod util;
 
 use term::{term, Context};
-use util::{comma_separated, delimited, ident, ident_list, string, token};
+use util::{comma_separated, delimited, ident, string, token};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident(pub String);
@@ -22,7 +26,7 @@ pub struct Variant {
 #[derive(Debug, Clone)]
 pub struct Data {
     pub variants: Vec<Variant>,
-    pub type_arguments: Vec<Ident>,
+    pub type_arguments: Vec<(Ident, Option<Term>)>,
     pub ident: Ident,
 }
 
@@ -69,7 +73,7 @@ parser! {
 
 fn data<Input>(
     ident: Ident,
-    type_arguments: Vec<Ident>,
+    type_arguments: Vec<(Ident, Option<Term>)>,
     context: Context,
 ) -> impl Parser<Input, Output = Data>
 where
@@ -82,6 +86,25 @@ where
     })
 }
 
+pub fn type_params<Input>() -> impl Parser<Input, Output = Vec<(Ident, Option<Term>)>>
+where
+    Input: Stream<Token = char>,
+{
+    spaces().with(many(
+        many1(letter().or(bare_token('_')))
+            .skip(spaces())
+            .map(Ident)
+            .and(value(None))
+            .or(delimited(
+                '(',
+                ')',
+                ident().skip(token(':')).and(term(Default::default())),
+            )
+            .skip(spaces())
+            .map(|(ident, term)| (ident, Some(term)))),
+    ))
+}
+
 parser! {
     fn block_item[Input](context: Context)(Input) -> BlockItem
     where
@@ -90,7 +113,7 @@ parser! {
         block_item_keyword().then(|kw| {
             let context = context.clone();
             match kw {
-                "data" => (ident(), ident_list()).then(move |(ident, type_arguments)| {
+                "data" => (ident(), type_params()).then(move |(ident, type_arguments)| {
                     delimited(
                         '{',
                         '}',

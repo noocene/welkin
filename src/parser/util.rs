@@ -1,5 +1,5 @@
 use combine::{
-    between, many, many1,
+    between, many1,
     parser::char::{letter, spaces, string as bare_string},
     sep_by, sep_by1, token as bare_token, Parser, Stream,
 };
@@ -25,17 +25,6 @@ where
     Input: Stream<Token = char>,
 {
     spaces().with(bare_ident())
-}
-
-pub fn ident_list<Input>() -> impl Parser<Input, Output = Vec<Ident>>
-where
-    Input: Stream<Token = char>,
-{
-    spaces().with(many(
-        many1(letter().or(bare_token('_')))
-            .skip(spaces())
-            .map(Ident),
-    ))
 }
 
 pub fn token<Input>(c: char) -> impl Parser<Input, Output = char>
