@@ -7,6 +7,8 @@ use crate::parser::{
     Ident, Path,
 };
 
+mod match_arms;
+
 use super::{AbsolutePath, Resolve, Resolved};
 
 pub trait Compile<T> {
@@ -31,8 +33,12 @@ impl Compile<AbsolutePath> for Term {
     ) -> CoreTerm<AbsolutePath> {
         match self {
             Term::Universe => CoreTerm::Universe,
-            Term::Lambda { argument, body } => CoreTerm::Lambda {
-                erased: false,
+            Term::Lambda {
+                argument,
+                body,
+                erased,
+            } => CoreTerm::Lambda {
+                erased,
                 body: Box::new(body.compile(resolver.descend(Some(argument)))),
             },
             Term::Reference(path) => match resolver.resolve(&path).unwrap() {
@@ -109,6 +115,8 @@ impl Compile<AbsolutePath> for Block {
                     })
                 })
                 .unwrap(),
+            Block::AbsoluteCore(core) => core,
+            Block::Match(m) => m.compile(resolver),
         }
     }
 }

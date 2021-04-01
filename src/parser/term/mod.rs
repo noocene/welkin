@@ -19,15 +19,16 @@ use lambda::lambda;
 mod duplicate;
 use duplicate::duplicate;
 mod block;
-pub use block::Block;
 use block::{block, block_keyword};
+pub(crate) use block::{Arm, Block, Match, Section};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Term {
     Universe,
     Lambda {
         argument: Ident,
         body: Box<Term>,
+        erased: bool,
     },
     Reference(Path),
     Application {
@@ -82,8 +83,7 @@ parser! {
         let group = group_or_ident(context.clone());
         let parser = group.skip(spaces()).then(|group| {
             let choice = choice!(
-                next_token_is('{').with(application(true, group.clone(), context.clone())),
-                next_token_is('[').with(application(false, group.clone(), context.clone())),
+                next_token_is('[').with(application(group.clone(), context.clone())),
                 value(group.clone())
             );
 

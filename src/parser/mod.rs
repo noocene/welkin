@@ -10,7 +10,7 @@ use util::{comma_separated, delimited, ident, ident_list, string, token};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ident(pub String);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Path(pub Vec<Ident>);
 
 #[derive(Debug, Clone)]

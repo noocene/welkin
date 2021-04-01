@@ -12,6 +12,7 @@ where
         .map(Box::new)
         .map(move |body| Term::Lambda {
             argument: ident.clone(),
+            erased: false,
             body,
         })
 }
