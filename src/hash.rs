@@ -6,7 +6,7 @@ use std::{
 
 use ring::digest::{Context, SHA256};
 use serde::{Deserialize, Serialize};
-use welkin_core::term::Term;
+use welkin_core::term::{None, Primitives, Term};
 
 #[derive(Serialize, Deserialize, Clone, Hash, Eq, PartialEq)]
 pub struct Hash([u8; 32]);
@@ -37,9 +37,10 @@ enum TermVariant {
     Function,
     Annotation,
     Wrap,
+    Primitive,
 }
 
-fn variant<T>(t: &Term<T>) -> u8 {
+fn variant<T, V: Primitives<T>>(t: &Term<T, V>) -> u8 {
     use Term::*;
 
     (match t {
@@ -53,6 +54,7 @@ fn variant<T>(t: &Term<T>) -> u8 {
         Function { .. } => TermVariant::Function,
         Annotation { .. } => TermVariant::Annotation,
         Wrap { .. } => TermVariant::Wrap,
+        Primitive(_) => TermVariant::Primitive,
     }) as u8
 }
 
@@ -62,8 +64,17 @@ impl ReferenceHash for Hash {
     }
 }
 
-pub(crate) fn hash<T: ReferenceHash>(t: &Term<T>) -> Hash {
-    fn hash_helper<T: ReferenceHash>(t: &Term<T>, context: &mut Context) {
+impl ReferenceHash for None {
+    fn hash(&self) -> Cow<'_, [u8]> {
+        panic!()
+    }
+}
+
+pub(crate) fn hash<T: ReferenceHash, V: Primitives<T> + ReferenceHash>(t: &Term<T, V>) -> Hash {
+    fn hash_helper<T: ReferenceHash, V: Primitives<T> + ReferenceHash>(
+        t: &Term<T, V>,
+        context: &mut Context,
+    ) {
         context.update(&[variant(t)]);
         use Term::*;
 
@@ -105,6 +116,9 @@ pub(crate) fn hash<T: ReferenceHash>(t: &Term<T>) -> Hash {
                 context.update(&[if *checked { 0 } else { 1 }]);
                 hash_helper(expression, context);
                 hash_helper(ty, context);
+            }
+            Primitive(prim) => {
+                context.update(prim.hash().as_ref());
             }
             Universe => {}
         }

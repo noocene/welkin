@@ -26,6 +26,7 @@ impl Compile<AbsolutePath> for Data {
         let mut ret_resolver = r.proceed();
 
         for (arg, _) in self.type_arguments.iter() {
+            ret_resolver = ret_resolver.descend(None);
             ret_resolver = ret_resolver.descend(Some(arg.clone()));
         }
 
@@ -190,17 +191,19 @@ impl Compile<AbsolutePath> for Data {
             let path = resolver.canonicalize(Path(vec![self.ident.clone(), variant.ident.clone()]));
             let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
 
-            let mut ty_resolver = resolver.proceed();
+            let mut t_resolver = resolver.proceed();
 
             for (arg, _) in &self.type_arguments {
-                ty_resolver = ty_resolver.descend(None);
-                ty_resolver = ty_resolver.descend(Some(arg.clone()));
+                t_resolver = t_resolver.descend(None);
+                t_resolver = t_resolver.descend(Some(arg.clone()));
             }
 
             for (arg, _) in &variant.inhabitants {
-                ty_resolver = ty_resolver.descend(None);
-                ty_resolver = ty_resolver.descend(Some(arg.clone()));
+                t_resolver = t_resolver.descend(None);
+                t_resolver = t_resolver.descend(Some(arg.clone()));
             }
+
+            let mut ty_resolver = t_resolver.proceed();
 
             for (arg, _) in &self.type_arguments {
                 ty = Box::new(CoreTerm::Apply {
@@ -225,7 +228,7 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for (_, t) in &self.type_arguments {
+            for (_, t) in self.type_arguments.iter().rev() {
                 ty = Box::new(CoreTerm::Function {
                     erased: true,
                     return_type: ty,
@@ -233,7 +236,7 @@ impl Compile<AbsolutePath> for Data {
                         t.as_ref()
                             .cloned()
                             .unwrap_or(Term::Universe)
-                            .compile(resolver.proceed()),
+                            .compile(ty_resolver.proceed()),
                     ),
                 });
             }
