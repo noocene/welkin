@@ -94,7 +94,7 @@ parser! {
                     Either::Left(
                         attempt(bare_string("||>"))
                             .with(lambda(true, path.0.first().unwrap().clone(), context.clone()))
-                            .or(bare_string("|>")
+                            .or(attempt(bare_string("|>"))
                             .with(lambda(false, path.0.first().unwrap().clone(), context.clone())))
                             .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone())))
                             .or(choice)

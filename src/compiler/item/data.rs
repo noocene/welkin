@@ -36,11 +36,6 @@ impl Compile<AbsolutePath> for Data {
             )
             .collect::<Vec<_>>();
 
-        let v = self.ident == Ident("Vector".into());
-        if v {
-            println!("{:?}", all_args);
-        }
-
         for (arg, _) in all_args.iter() {
             ret_resolver = ret_resolver.descend(None);
             ret_resolver = ret_resolver.descend(Some(arg.clone()));
@@ -71,26 +66,41 @@ impl Compile<AbsolutePath> for Data {
 
         let mut term = Box::new(CoreTerm::Function {
             erased: true,
-            argument_type: Box::new(CoreTerm::Function {
-                erased: false,
-                argument_type: {
-                    let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
-                    for (arg, _) in &all_args {
-                        ty = Box::new(CoreTerm::Apply {
-                            erased: true,
-                            function: ty,
-                            argument: Box::new(CoreTerm::Variable(
-                                resolver
-                                    .resolve(&Path(vec![arg.clone()]))
-                                    .unwrap()
-                                    .unwrap_index(),
-                            )),
-                        });
-                    }
-                    ty
-                },
-                return_type: Box::new(CoreTerm::Universe),
-            }),
+            argument_type: {
+                let mut arg_resolver = resolver.proceed();
+                for (index, _) in &self.indices {
+                    arg_resolver = arg_resolver.descend(None).descend(Some(index.clone()));
+                }
+                let mut arg = Box::new(CoreTerm::Function {
+                    erased: false,
+                    argument_type: {
+                        let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
+                        for (arg, _) in &all_args {
+                            ty = Box::new(CoreTerm::Apply {
+                                erased: true,
+                                function: ty,
+                                argument: Box::new(CoreTerm::Variable(
+                                    arg_resolver
+                                        .resolve(&Path(vec![arg.clone()]))
+                                        .unwrap()
+                                        .unwrap_index(),
+                                )),
+                            });
+                        }
+                        ty
+                    },
+                    return_type: Box::new(CoreTerm::Universe),
+                });
+                for (_, ty) in &self.indices {
+                    arg_resolver = arg_resolver.ascend().ascend();
+                    arg = Box::new(CoreTerm::Function {
+                        return_type: arg,
+                        erased: false,
+                        argument_type: Box::new(ty.clone().compile(arg_resolver.proceed())),
+                    });
+                }
+                arg
+            },
             return_type: {
                 resolver = resolver.descend(Some(self_ident.clone()));
                 resolver = resolver.descend(Some(prop_ident.clone()));
@@ -100,12 +110,27 @@ impl Compile<AbsolutePath> for Data {
                 }
                 let mut ty = Box::new(CoreTerm::Apply {
                     erased: false,
-                    function: Box::new(CoreTerm::Variable(
-                        resolver
-                            .resolve(&Path(vec![prop_ident.clone()]))
-                            .unwrap()
-                            .unwrap_index(),
-                    )),
+                    function: {
+                        let mut prop = Box::new(CoreTerm::Variable(
+                            resolver
+                                .resolve(&Path(vec![prop_ident.clone()]))
+                                .unwrap()
+                                .unwrap_index(),
+                        ));
+                        for (index, _) in &self.indices {
+                            prop = Box::new(CoreTerm::Apply {
+                                erased: false,
+                                function: prop,
+                                argument: Box::new(CoreTerm::Variable(
+                                    resolver
+                                        .resolve(&Path(vec![index.clone()]))
+                                        .unwrap()
+                                        .unwrap_index(),
+                                )),
+                            });
+                        }
+                        prop
+                    },
                     argument: Box::new(CoreTerm::Variable(
                         resolver
                             .resolve(&Path(vec![self_ident.clone()]))
@@ -129,18 +154,30 @@ impl Compile<AbsolutePath> for Data {
 
                             let mut ty = Box::new(CoreTerm::Apply {
                                 erased: false,
-                                function: Box::new(CoreTerm::Variable(
-                                    variant_resolver
-                                        .resolve(&Path(vec![prop_ident.clone()]))
-                                        .unwrap()
-                                        .unwrap_index(),
-                                )),
+                                function: {
+                                    let mut prop = Box::new(CoreTerm::Variable(
+                                        variant_resolver
+                                            .resolve(&Path(vec![prop_ident.clone()]))
+                                            .unwrap()
+                                            .unwrap_index(),
+                                    ));
+                                    for index in &variant.indices {
+                                        prop = Box::new(CoreTerm::Apply {
+                                            erased: false,
+                                            function: prop,
+                                            argument: Box::new(
+                                                index.clone().compile(variant_resolver.proceed()),
+                                            ),
+                                        });
+                                    }
+                                    prop
+                                },
                                 argument: {
                                     let mut function =
                                         Box::new(CoreTerm::Reference(resolver.canonicalize(Path(
                                             vec![self.ident.clone(), variant.ident.clone()],
                                         ))));
-                                    for (arg, _) in &all_args {
+                                    for (arg, _) in &self.type_arguments {
                                         function = Box::new(CoreTerm::Apply {
                                             function,
                                             erased: true,
@@ -192,15 +229,11 @@ impl Compile<AbsolutePath> for Data {
             },
         });
 
-        for _ in &self.type_arguments {
+        for _ in &all_args {
             term = Box::new(CoreTerm::Lambda {
                 erased: true,
                 body: term,
             })
-        }
-
-        if v {
-            println!("VECTOR TY: {:?}", return_type);
         }
 
         declarations.push((canonical_path.clone(), *return_type, *term));
@@ -225,7 +258,7 @@ impl Compile<AbsolutePath> for Data {
 
             let mut ty_resolver = t_resolver.proceed();
 
-            for (arg, _) in &self.type_arguments {
+            for (arg, _) in self.type_arguments.iter() {
                 ty = Box::new(CoreTerm::Apply {
                     erased: true,
                     function: ty,
@@ -235,6 +268,14 @@ impl Compile<AbsolutePath> for Data {
                             .unwrap()
                             .unwrap_index(),
                     )),
+                });
+            }
+
+            for index in &variant.indices {
+                ty = Box::new(CoreTerm::Apply {
+                    erased: true,
+                    function: ty,
+                    argument: Box::new(index.clone().compile(ty_resolver.proceed())),
                 });
             }
 
