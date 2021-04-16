@@ -1,0 +1,21 @@
+name: Check 
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Install dependencies
+      run: |
+        rustup default stable
+        rustup update
+    - name: Build
+      run: cargo build
+    - name: Run tests
+      run: cargo run .welkin

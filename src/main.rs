@@ -135,5 +135,7 @@ fn main() {
             main.normalize().unwrap();
             main.into_inner()
         });
+    } else {
+        exit(1);
     }
 }
