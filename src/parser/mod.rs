@@ -20,6 +20,7 @@ pub struct Path(pub Vec<Ident>);
 #[derive(Debug, Clone)]
 pub struct Variant {
     pub ident: Ident,
+    pub erased: Option<usize>,
     pub inhabitants: Vec<(Ident, Term)>,
     pub indices: Vec<Term>,
 }
@@ -27,7 +28,7 @@ pub struct Variant {
 #[derive(Debug, Clone)]
 pub struct Data {
     pub variants: Vec<Variant>,
-    pub type_arguments: Vec<(Ident, Option<Term>)>,
+    pub type_arguments: Vec<(Ident, Option<Term>, bool)>,
     pub indices: Vec<(Ident, Term)>,
     pub ident: Ident,
 }
@@ -64,20 +65,27 @@ parser! {
     {
         (
             ident(),
+            optional(delimited('[', ']', comma_separated((ident().skip(token(':')), term(context.clone()))))),
             optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()))))),
             optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(term(context.clone())))))).map(|data| data.unwrap_or(vec![]))
         )
-            .map(|(ident, inhabitants, indices)| Variant {
-                ident,
-                inhabitants: inhabitants.unwrap_or(vec![]),
-                indices
+            .map(|(ident, erased_inhabitants, inhabitants, indices)| {
+                let erased = erased_inhabitants.as_ref().map(|x| x.len());
+                let mut erased_inhabitants = erased_inhabitants.unwrap_or(vec![]);
+                erased_inhabitants.append(&mut inhabitants.unwrap_or(vec![]));
+                Variant {
+                    ident,
+                    erased,
+                    inhabitants: erased_inhabitants,
+                    indices
+                }
             })
     }
 }
 
 fn data<Input>(
     ident: Ident,
-    type_arguments: Vec<(Ident, Option<Term>)>,
+    type_arguments: Vec<(Ident, Option<Term>, bool)>,
     indices: Vec<(Ident, Term)>,
     context: Context,
 ) -> impl Parser<Input, Output = Data>
@@ -92,22 +100,35 @@ where
     })
 }
 
-pub fn type_params<Input>() -> impl Parser<Input, Output = Vec<(Ident, Option<Term>)>>
+pub fn type_params<Input>() -> impl Parser<Input, Output = Vec<(Ident, Option<Term>, bool)>>
 where
     Input: Stream<Token = char>,
 {
     spaces().with(many(
-        many1(letter().or(bare_token('_')))
-            .skip(spaces())
-            .map(Ident)
-            .and(value(None))
+        (
+            many1(letter().or(bare_token('_')))
+                .skip(spaces())
+                .map(Ident),
+            value(None),
+            value(true),
+        )
             .or(delimited(
-                '(',
-                ')',
+                '[',
+                ']',
                 ident().skip(token(':')).and(term(Default::default())),
             )
             .skip(spaces())
-            .map(|(ident, term)| (ident, Some(term)))),
+            .map(|(ident, term)| (ident, Some(term), true)))
+            .or(delimited(
+                '(',
+                ')',
+                (
+                    ident(),
+                    optional(attempt(token(':').with(term(Default::default())))),
+                ),
+            )
+            .skip(spaces())
+            .map(|(ident, term)| (ident, term, false))),
     ))
 }
 
@@ -119,7 +140,16 @@ parser! {
         attempt(block_item_keyword()).then(|kw| {
             let context = context.clone();
             match kw {
-                "data" => (ident(), type_params(), optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated((ident().skip(token(':')), term(context.clone())))).skip(spaces()))))).then(move |(ident, type_arguments, indices)| {
+                "data" => (
+                        ident(),
+                        type_params(),
+                        optional(
+                            attempt(token('~')
+                                .and(string("with"))
+                                .skip(spaces())
+                                .with(delimited('{','}', comma_separated((ident().skip(token(':')), term(context.clone())))).skip(spaces())))
+                        )
+                    ).then(move |(ident, type_arguments, indices)| {
                     delimited(
                         '{',
                         '}',

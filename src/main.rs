@@ -103,15 +103,10 @@ fn main() {
         }
 
         if let Err(e) = term.check(&ty, &defs) {
-            println!("TERM: {:?}", term);
-            println!("TY: {:?}", ty);
-
             errs.push_str(&format!("\n{:?} ERR\n{:?}\n", path, e));
             er = 1;
         } else {
             if let Err(e) = ty.check(&Term::Universe, &defs) {
-                println!("{:?}", ty);
-
                 errs.push_str(&format!(
                     "\n{:?} ERR\n{:?}\nwhen checking {:?} in universe\n",
                     path, e, ty

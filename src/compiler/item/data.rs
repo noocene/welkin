@@ -28,24 +28,26 @@ impl Compile<AbsolutePath> for Data {
         let all_args = self
             .type_arguments
             .iter()
-            .map(|(a, b)| (a.clone(), b.clone()))
+            .map(|(a, b, erased)| (a.clone(), b.clone(), *erased))
             .chain(
                 self.indices
                     .iter()
-                    .map(|(a, b)| (a.clone(), Some(b.clone()))),
+                    .map(|(a, b)| (a.clone(), Some(b.clone()), true)),
             )
             .collect::<Vec<_>>();
 
-        for (arg, _) in all_args.iter() {
+        for (arg, _, _) in all_args.iter() {
             ret_resolver = ret_resolver.descend(None);
             ret_resolver = ret_resolver.descend(Some(arg.clone()));
         }
 
-        for (_, ty) in all_args.iter().rev() {
+        for (_, ty, erased) in all_args.iter().rev() {
             ret_resolver = ret_resolver.ascend().ascend();
 
+            let erased = *erased;
+
             return_type = Box::new(CoreTerm::Function {
-                erased: true,
+                erased,
                 argument_type: Box::new(
                     ty.clone()
                         .unwrap_or(Term::Universe)
@@ -57,7 +59,7 @@ impl Compile<AbsolutePath> for Data {
 
         let mut resolver = r.proceed();
 
-        for (arg, _) in all_args.iter() {
+        for (arg, _, _) in all_args.iter() {
             resolver = resolver.descend(Some(arg.clone()));
         }
 
@@ -75,9 +77,11 @@ impl Compile<AbsolutePath> for Data {
                     erased: false,
                     argument_type: {
                         let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
-                        for (arg, _) in &all_args {
+                        for (arg, _, erased) in &all_args {
+                            let erased = *erased;
+
                             ty = Box::new(CoreTerm::Apply {
-                                erased: true,
+                                erased,
                                 function: ty,
                                 argument: Box::new(CoreTerm::Variable(
                                     arg_resolver
@@ -177,10 +181,12 @@ impl Compile<AbsolutePath> for Data {
                                         Box::new(CoreTerm::Reference(resolver.canonicalize(Path(
                                             vec![self.ident.clone(), variant.ident.clone()],
                                         ))));
-                                    for (arg, _) in &self.type_arguments {
+                                    for (arg, _, erased) in &self.type_arguments {
+                                        let erased = *erased;
+
                                         function = Box::new(CoreTerm::Apply {
                                             function,
-                                            erased: true,
+                                            erased,
                                             argument: Box::new(CoreTerm::Variable(
                                                 variant_resolver
                                                     .resolve(&Path(vec![arg.clone()]))
@@ -229,11 +235,10 @@ impl Compile<AbsolutePath> for Data {
             },
         });
 
-        for _ in &all_args {
-            term = Box::new(CoreTerm::Lambda {
-                erased: true,
-                body: term,
-            })
+        for (_, _, erased) in all_args.iter().rev() {
+            let erased = *erased;
+
+            term = Box::new(CoreTerm::Lambda { erased, body: term })
         }
 
         declarations.push((canonical_path.clone(), *return_type, *term));
@@ -246,7 +251,7 @@ impl Compile<AbsolutePath> for Data {
 
             let mut t_resolver = resolver.proceed();
 
-            for (arg, _) in &self.type_arguments {
+            for (arg, _, _) in &self.type_arguments {
                 t_resolver = t_resolver.descend(None);
                 t_resolver = t_resolver.descend(Some(arg.clone()));
             }
@@ -258,9 +263,11 @@ impl Compile<AbsolutePath> for Data {
 
             let mut ty_resolver = t_resolver.proceed();
 
-            for (arg, _) in self.type_arguments.iter() {
+            for (arg, _, erased) in self.type_arguments.iter() {
+                let erased = *erased;
+
                 ty = Box::new(CoreTerm::Apply {
-                    erased: true,
+                    erased,
                     function: ty,
                     argument: Box::new(CoreTerm::Variable(
                         ty_resolver
@@ -289,11 +296,13 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for (_, t) in self.type_arguments.iter().rev() {
+            for (_, t, erased) in self.type_arguments.iter().rev() {
                 ty_resolver = ty_resolver.ascend().ascend();
 
+                let erased = *erased;
+
                 ty = Box::new(CoreTerm::Function {
-                    erased: true,
+                    erased,
                     return_type: ty,
                     argument_type: Box::new(
                         t.as_ref()
@@ -304,7 +313,7 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for (arg, _) in &self.type_arguments {
+            for (arg, _, _) in &self.type_arguments {
                 resolver = resolver.descend(Some(arg.clone()));
             }
 
@@ -357,11 +366,10 @@ impl Compile<AbsolutePath> for Data {
                 })
             }
 
-            for _ in &self.type_arguments {
-                term = Box::new(CoreTerm::Lambda {
-                    erased: true,
-                    body: term,
-                })
+            for (_, _, erased) in self.type_arguments.iter().rev() {
+                let erased = *erased;
+
+                term = Box::new(CoreTerm::Lambda { erased, body: term })
             }
 
             declarations.push((path, *ty, *term));
