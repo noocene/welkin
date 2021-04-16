@@ -21,12 +21,14 @@ pub struct Path(pub Vec<Ident>);
 pub struct Variant {
     pub ident: Ident,
     pub inhabitants: Vec<(Ident, Term)>,
+    pub indices: Vec<Term>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Data {
     pub variants: Vec<Variant>,
     pub type_arguments: Vec<(Ident, Option<Term>)>,
+    pub indices: Vec<(Ident, Term)>,
     pub ident: Ident,
 }
 
@@ -63,10 +65,12 @@ parser! {
         (
             ident(),
             optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()))))),
+            optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(term(context.clone())))))).map(|data| data.unwrap_or(vec![]))
         )
-            .map(|(ident, inhabitants)| Variant {
+            .map(|(ident, inhabitants, indices)| Variant {
                 ident,
                 inhabitants: inhabitants.unwrap_or(vec![]),
+                indices
             })
     }
 }
@@ -74,6 +78,7 @@ parser! {
 fn data<Input>(
     ident: Ident,
     type_arguments: Vec<(Ident, Option<Term>)>,
+    indices: Vec<(Ident, Term)>,
     context: Context,
 ) -> impl Parser<Input, Output = Data>
 where
@@ -83,6 +88,7 @@ where
         variants,
         ident: ident.clone(),
         type_arguments: type_arguments.clone(),
+        indices: indices.clone(),
     })
 }
 
@@ -110,14 +116,14 @@ parser! {
     where
          [ Input: Stream<Token = char> ]
     {
-        block_item_keyword().then(|kw| {
+        attempt(block_item_keyword()).then(|kw| {
             let context = context.clone();
             match kw {
-                "data" => (ident(), type_params()).then(move |(ident, type_arguments)| {
+                "data" => (ident(), type_params(), optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated((ident().skip(token(':')), term(context.clone())))).skip(spaces()))))).then(move |(ident, type_arguments, indices)| {
                     delimited(
                         '{',
                         '}',
-                        data(ident, type_arguments, context.clone()).map(BlockItem::Data)
+                        data(ident, type_arguments, indices.unwrap_or(vec![]), context.clone()).map(BlockItem::Data)
                     )
                 }),
                 _ => panic!()
@@ -142,7 +148,7 @@ pub fn item<Input>() -> impl Parser<Input, Output = Item>
 where
     Input: Stream<Token = char>,
 {
-    let parser = attempt(block_item(Default::default()).map(Item::Block));
+    let parser = block_item(Default::default()).map(Item::Block);
     let parser = parser.or(declaration(Default::default()).map(Item::Declaration));
     parser
 }

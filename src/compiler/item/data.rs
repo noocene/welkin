@@ -25,19 +25,34 @@ impl Compile<AbsolutePath> for Data {
         let mut return_type = Box::new(CoreTerm::Universe);
         let mut ret_resolver = r.proceed();
 
-        for (arg, _) in self.type_arguments.iter() {
+        let all_args = self
+            .type_arguments
+            .iter()
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .chain(
+                self.indices
+                    .iter()
+                    .map(|(a, b)| (a.clone(), Some(b.clone()))),
+            )
+            .collect::<Vec<_>>();
+
+        let v = self.ident == Ident("Vector".into());
+        if v {
+            println!("{:?}", all_args);
+        }
+
+        for (arg, _) in all_args.iter() {
             ret_resolver = ret_resolver.descend(None);
             ret_resolver = ret_resolver.descend(Some(arg.clone()));
         }
 
-        for (_, ty) in self.type_arguments.iter().rev() {
+        for (_, ty) in all_args.iter().rev() {
             ret_resolver = ret_resolver.ascend().ascend();
 
             return_type = Box::new(CoreTerm::Function {
                 erased: true,
                 argument_type: Box::new(
-                    ty.as_ref()
-                        .cloned()
+                    ty.clone()
                         .unwrap_or(Term::Universe)
                         .compile(ret_resolver.proceed()),
                 ),
@@ -47,7 +62,7 @@ impl Compile<AbsolutePath> for Data {
 
         let mut resolver = r.proceed();
 
-        for (arg, _) in self.type_arguments.iter() {
+        for (arg, _) in all_args.iter() {
             resolver = resolver.descend(Some(arg.clone()));
         }
 
@@ -60,7 +75,7 @@ impl Compile<AbsolutePath> for Data {
                 erased: false,
                 argument_type: {
                     let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
-                    for (arg, _) in &self.type_arguments {
+                    for (arg, _) in &all_args {
                         ty = Box::new(CoreTerm::Apply {
                             erased: true,
                             function: ty,
@@ -125,7 +140,7 @@ impl Compile<AbsolutePath> for Data {
                                         Box::new(CoreTerm::Reference(resolver.canonicalize(Path(
                                             vec![self.ident.clone(), variant.ident.clone()],
                                         ))));
-                                    for (arg, _) in &self.type_arguments {
+                                    for (arg, _) in &all_args {
                                         function = Box::new(CoreTerm::Apply {
                                             function,
                                             erased: true,
@@ -182,6 +197,10 @@ impl Compile<AbsolutePath> for Data {
                 erased: true,
                 body: term,
             })
+        }
+
+        if v {
+            println!("VECTOR TY: {:?}", return_type);
         }
 
         declarations.push((canonical_path.clone(), *return_type, *term));

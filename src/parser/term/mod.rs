@@ -1,10 +1,10 @@
 use combine::{
-    attempt, choice, look_ahead, optional, parser,
+    attempt, choice, look_ahead, many, optional, parser,
     parser::{
         char::{spaces, string as bare_string},
         combinator::Either,
     },
-    sep_by1, token as bare_token, unexpected_any, value, Parser, Stream,
+    token as bare_token, value, Parser, Stream,
 };
 
 use super::{
@@ -47,6 +47,7 @@ pub enum Term {
     Function {
         argument_binding: Option<Ident>,
         argument_type: Box<Term>,
+        erased: bool,
         return_type: Box<Term>,
     },
 }
@@ -83,15 +84,18 @@ parser! {
         let group = group_or_ident(context.clone());
         let parser = group.skip(spaces()).then(|group| {
             let choice = choice!(
-                next_token_is('[').with(application(group.clone(), context.clone())),
+                next_token_is('[').with(application(true, group.clone(), context.clone())),
+                next_token_is('(').with(application(false, group.clone(), context.clone())),
                 value(group.clone())
             );
 
             if let Term::Reference(path) = &group {
                 if path.0.len() == 1 {
                     Either::Left(
-                        bare_string("=>")
-                            .with(lambda(path.0.first().unwrap().clone(), context.clone()))
+                        attempt(bare_string("||>"))
+                            .with(lambda(true, path.0.first().unwrap().clone(), context.clone()))
+                            .or(bare_string("|>")
+                            .with(lambda(false, path.0.first().unwrap().clone(), context.clone())))
                             .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone())))
                             .or(choice)
                         )
@@ -127,39 +131,38 @@ pub fn term<Input>(context: Context) -> impl Parser<Input, Output = Term>
 where
     Input: Stream<Token = char>,
 {
-    sep_by1(
-        spaces()
-            .with(term_fragment(context).map(Box::new))
-            .skip(spaces())
-            .and(optional(attempt(bare_string("~as")).with(ident()))),
-        string("->"),
-    )
-    .then(move |data: Vec<_>| {
-        let mut argument_types = data.into_iter().rev();
-        let (return_type, return_name) = argument_types.next().unwrap();
+    spaces()
+        .with(many(attempt((
+            term_fragment(context.clone())
+                .map(Box::new)
+                .and(optional(attempt(string("~as")).with(ident()))),
+            spaces()
+                .with(choice!(bare_string("|->"), bare_string("->")))
+                .skip(spaces()),
+        ))))
+        .and(term_fragment(context).map(Box::new))
+        .map(move |(data, return_type): (Vec<_>, _)| {
+            let mut argument_types = data.into_iter().map(|(a, b)| (a, b == "|->")).rev();
 
-        if return_name.is_some() {
-            Either::Left(unexpected_any("name binding on return type"))
-        } else {
-            Either::Right(value(
-                if let Some((argument_type, argument_binding)) = argument_types.next() {
-                    let mut term = Term::Function {
+            if let Some(((argument_type, argument_binding), erased)) = argument_types.next() {
+                let mut term = Term::Function {
+                    argument_type,
+                    return_type,
+                    erased,
+                    argument_binding,
+                };
+                while let Some(((argument_type, argument_binding), erased)) = argument_types.next()
+                {
+                    term = Term::Function {
                         argument_type,
-                        return_type,
                         argument_binding,
-                    };
-                    while let Some((argument_type, argument_binding)) = argument_types.next() {
-                        term = Term::Function {
-                            argument_type,
-                            argument_binding,
-                            return_type: Box::new(term),
-                        }
+                        erased,
+                        return_type: Box::new(term),
                     }
-                    term
-                } else {
-                    *return_type
-                },
-            ))
-        }
-    })
+                }
+                term
+            } else {
+                *return_type
+            }
+        })
 }

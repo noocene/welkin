@@ -68,7 +68,7 @@ parser! {
     where
          [ Input: Stream<Token = char> ]
     {
-        spaces().with((term_fragment(context.clone()).map(Box::new), delimited('{','}', many(match_section(context.clone())))).map(|(expression, sections)| {
+        spaces().with((term_fragment(context.clone()).map(Box::new), delimited('{','}', many(attempt(match_section(context.clone()))))).map(|(expression, sections)| {
             Block::Match(Match {
                 expression,
                 sections

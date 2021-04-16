@@ -1,4 +1,4 @@
-mul:
+pow:
 Nat ->
 Nat ->
 Nat
@@ -6,6 +6,6 @@ Nat
 a |> b |>
 ~match b {
     zero       = Nat::zero
-    succ(pred) = Nat::add(a, Nat::mul(a, pred))
+    succ(pred) = Nat::mul(a, Nat::pow(a, pred))
     : Nat
 }

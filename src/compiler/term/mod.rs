@@ -82,6 +82,7 @@ impl Compile<AbsolutePath> for Term {
             Term::Function {
                 argument_binding,
                 argument_type,
+                erased,
                 return_type,
             } => {
                 let argument_type = Box::new(argument_type.compile(resolver.proceed()));
@@ -90,7 +91,7 @@ impl Compile<AbsolutePath> for Term {
                 CoreTerm::Function {
                     argument_type,
                     return_type,
-                    erased: false,
+                    erased,
                 }
             }
         }

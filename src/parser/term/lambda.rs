@@ -4,7 +4,11 @@ use crate::parser::Ident;
 
 use super::{term, Context, Term};
 
-pub fn lambda<Input>(ident: Ident, context: Context) -> impl Parser<Input, Output = Term>
+pub fn lambda<Input>(
+    erased: bool,
+    ident: Ident,
+    context: Context,
+) -> impl Parser<Input, Output = Term>
 where
     Input: Stream<Token = char>,
 {
@@ -12,7 +16,7 @@ where
         .map(Box::new)
         .map(move |body| Term::Lambda {
             argument: ident.clone(),
-            erased: false,
+            erased,
             body,
         })
 }
