@@ -31,6 +31,8 @@ impl Compile<AbsolutePath> for Data {
         }
 
         for (_, ty) in self.type_arguments.iter().rev() {
+            ret_resolver = ret_resolver.ascend().ascend();
+
             return_type = Box::new(CoreTerm::Function {
                 erased: true,
                 argument_type: Box::new(
@@ -41,7 +43,6 @@ impl Compile<AbsolutePath> for Data {
                 ),
                 return_type,
             });
-            ret_resolver = ret_resolver.ascend().ascend();
         }
 
         let mut resolver = r.proceed();
@@ -229,6 +230,8 @@ impl Compile<AbsolutePath> for Data {
             }
 
             for (_, t) in self.type_arguments.iter().rev() {
+                ty_resolver = ty_resolver.ascend().ascend();
+
                 ty = Box::new(CoreTerm::Function {
                     erased: true,
                     return_type: ty,
