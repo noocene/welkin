@@ -150,7 +150,7 @@ impl Compile<AbsolutePath> for Data {
                         erased: false,
                         argument_type: {
                             let mut variant_resolver = resolver.proceed();
-                            for (inhabitant, _) in &variant.inhabitants {
+                            for (inhabitant, _, _) in &variant.inhabitants {
                                 variant_resolver = variant_resolver.descend(None);
                                 variant_resolver =
                                     variant_resolver.descend(Some(inhabitant.clone()));
@@ -195,7 +195,9 @@ impl Compile<AbsolutePath> for Data {
                                             )),
                                         })
                                     }
-                                    for (ident, _) in &variant.inhabitants {
+                                    for (ident, _, erased) in &variant.inhabitants {
+                                        let erased = *erased;
+
                                         function = Box::new(CoreTerm::Apply {
                                             argument: Box::new(CoreTerm::Variable(
                                                 variant_resolver
@@ -203,7 +205,7 @@ impl Compile<AbsolutePath> for Data {
                                                     .unwrap()
                                                     .unwrap_index(),
                                             )),
-                                            erased: false,
+                                            erased,
                                             function,
                                         })
                                     }
@@ -212,14 +214,16 @@ impl Compile<AbsolutePath> for Data {
                             });
 
                             let mut arg_resolver = resolver.proceed();
-                            for (id, _) in &variant.inhabitants {
+                            for (id, _, _) in &variant.inhabitants {
                                 arg_resolver = arg_resolver.descend(None).descend(Some(id.clone()));
                             }
 
-                            for (_, ity) in variant.inhabitants.iter().rev() {
+                            for (_, ity, erased) in variant.inhabitants.iter().rev() {
                                 arg_resolver = arg_resolver.ascend().ascend();
+                                let erased = *erased;
+
                                 ty = Box::new(CoreTerm::Function {
-                                    erased: false,
+                                    erased,
                                     argument_type: Box::new(
                                         ity.clone().compile(arg_resolver.proceed()),
                                     ),
@@ -256,7 +260,7 @@ impl Compile<AbsolutePath> for Data {
                 t_resolver = t_resolver.descend(Some(arg.clone()));
             }
 
-            for (arg, _) in &variant.inhabitants {
+            for (arg, _, _) in &variant.inhabitants {
                 t_resolver = t_resolver.descend(None);
                 t_resolver = t_resolver.descend(Some(arg.clone()));
             }
@@ -286,11 +290,12 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for (_, ity) in variant.inhabitants.iter().rev() {
+            for (_, ity, erased) in variant.inhabitants.iter().rev() {
                 ty_resolver = ty_resolver.ascend().ascend();
+                let erased = *erased;
 
                 ty = Box::new(CoreTerm::Function {
-                    erased: false,
+                    erased,
                     return_type: ty,
                     argument_type: Box::new(ity.clone().compile(ty_resolver.proceed())),
                 });
@@ -317,7 +322,7 @@ impl Compile<AbsolutePath> for Data {
                 resolver = resolver.descend(Some(arg.clone()));
             }
 
-            for (ident, _) in &variant.inhabitants {
+            for (ident, _, _) in &variant.inhabitants {
                 resolver = resolver.descend(Some(ident.clone()));
             }
 
@@ -334,10 +339,12 @@ impl Compile<AbsolutePath> for Data {
                     .unwrap_index(),
             ));
 
-            for (ident, _) in &variant.inhabitants {
+            for (ident, _, erased) in &variant.inhabitants {
+                let erased = *erased;
+
                 term = Box::new(CoreTerm::Apply {
                     function: term,
-                    erased: false,
+                    erased,
                     argument: Box::new(CoreTerm::Variable(
                         resolver
                             .resolve(&Path(vec![ident.clone()]))
@@ -359,11 +366,10 @@ impl Compile<AbsolutePath> for Data {
                 body: term,
             });
 
-            for _ in &variant.inhabitants {
-                term = Box::new(CoreTerm::Lambda {
-                    erased: false,
-                    body: term,
-                })
+            for (_, _, erased) in variant.inhabitants.iter().rev() {
+                let erased = *erased;
+
+                term = Box::new(CoreTerm::Lambda { erased, body: term })
             }
 
             for (_, _, erased) in self.type_arguments.iter().rev() {

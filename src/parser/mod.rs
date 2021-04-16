@@ -20,8 +20,7 @@ pub struct Path(pub Vec<Ident>);
 #[derive(Debug, Clone)]
 pub struct Variant {
     pub ident: Ident,
-    pub erased: usize,
-    pub inhabitants: Vec<(Ident, Term)>,
+    pub inhabitants: Vec<(Ident, Term, bool)>,
     pub indices: Vec<Term>,
 }
 
@@ -65,17 +64,15 @@ parser! {
     {
         (
             ident(),
-            optional(delimited('[', ']', comma_separated((ident().skip(token(':')), term(context.clone()))))),
-            optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()))))),
+            optional(delimited('[', ']', comma_separated((ident().skip(token(':')), term(context.clone()), value(true))))),
+            optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()), value(false))))),
             optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(term(context.clone())))))).map(|data| data.unwrap_or(vec![]))
         )
             .map(|(ident, erased_inhabitants, inhabitants, indices)| {
-                let erased = erased_inhabitants.as_ref().map(|x| x.len()).unwrap_or(0);
                 let mut erased_inhabitants = erased_inhabitants.unwrap_or(vec![]);
                 erased_inhabitants.append(&mut inhabitants.unwrap_or(vec![]));
                 Variant {
                     ident,
-                    erased,
                     inhabitants: erased_inhabitants,
                     indices
                 }
