@@ -22,7 +22,11 @@ impl Compile<AbsolutePath> for Match {
 
         let motive = self.sections.first().and_then(|section| {
             if self.sections.len() == 1 {
-                Some(section.ty.clone().compile(resolver.descend(None)))
+                let mut descent_resolver = resolver.proceed();
+                for index in &self.indices {
+                    descent_resolver = descent_resolver.descend(Some(index.clone()));
+                }
+                Some(section.ty.clone().compile(descent_resolver.descend(None)))
             } else {
                 None
             }
@@ -40,8 +44,14 @@ impl Compile<AbsolutePath> for Match {
 
         let self_path = Path(vec![self_ident.clone()]);
 
+        let mut descent_resolver = resolver.proceed();
+        for index in &self.indices {
+            descent_resolver = descent_resolver.descend(Some(index.clone()));
+        }
+
         let motive = motive.unwrap_or_else(|| {
             Match {
+                indices: vec![],
                 expression: Box::new(Term::Reference(self_path.clone())),
                 sections: vec![Section {
                     ty: Term::Universe,
@@ -55,25 +65,35 @@ impl Compile<AbsolutePath> for Match {
                         .collect(),
                 }],
             }
-            .compile(resolver.descend(Some(self_ident.clone())))
+            .compile(descent_resolver.descend(Some(self_ident.clone())))
         });
 
         let mut term = Term::Application {
             function: self.expression,
             erased: true,
-            arguments: vec![Term::Lambda {
-                argument: self_ident.clone(),
-                body: Box::new(Term::Block(Block::AbsoluteCore(motive))),
-                erased: false,
+            arguments: vec![{
+                let mut arg = Term::Lambda {
+                    argument: self_ident.clone(),
+                    body: Box::new(Term::Block(Block::AbsoluteCore(motive))),
+                    erased: false,
+                };
+                for index in self.indices {
+                    arg = Term::Lambda {
+                        argument: index,
+                        body: Box::new(arg),
+                        erased: true,
+                    };
+                }
+                arg
             }],
         };
 
         for (arm, _) in sections.into_iter() {
             let mut expr = arm.expression;
-            for argument in arm.introductions.into_iter().rev() {
+            for (argument, erased) in arm.introductions.into_iter().rev() {
                 expr = Term::Lambda {
                     argument,
-                    erased: false,
+                    erased,
                     body: Box::new(expr),
                 };
             }

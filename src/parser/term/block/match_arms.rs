@@ -1,19 +1,16 @@
-use combine::{attempt, many, optional, parser::char::spaces, Parser, Stream};
-
-use combine::parser;
-
 use crate::parser::{
     term::{term, term_fragment, Context},
-    util::{comma_separated, delimited, ident, token},
+    util::{comma_separated, comma_separated1, delimited, ident, string, token},
     Ident, Term,
 };
+use combine::{attempt, many, optional, parser, parser::char::spaces, Parser, Stream};
 
 use super::Block;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Arm {
     pub(crate) expression: Term,
-    pub(crate) introductions: Vec<Ident>,
+    pub(crate) introductions: Vec<(Ident, bool)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +22,7 @@ pub struct Section {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Match {
     pub(crate) expression: Box<Term>,
+    pub(crate) indices: Vec<Ident>,
     pub(crate) sections: Vec<Section>,
 }
 
@@ -33,16 +31,32 @@ where
     Input: Stream<Token = char>,
 {
     (
-        ident().and(
-            optional(delimited('(', ')', comma_separated(ident())))
-                .map(|introductions| introductions.unwrap_or(vec![])),
+        (
+            ident(),
+            optional(delimited(
+                '[',
+                ']',
+                comma_separated(ident().map(|a| (a, true))),
+            ))
+            .map(|introductions| introductions.unwrap_or(vec![])),
+            optional(delimited(
+                '(',
+                ')',
+                comma_separated(ident().map(|a| (a, false))),
+            ))
+            .map(|introductions| introductions.unwrap_or(vec![])),
         ),
         token('=').skip(spaces()).with(term_fragment(context)),
     )
-        .map(|((_, introductions), expression)| Arm {
-            expression,
-            introductions,
-        })
+        .map(
+            |((_, mut introductions, mut remaining_introductions), expression)| {
+                introductions.append(&mut remaining_introductions);
+                Arm {
+                    expression,
+                    introductions,
+                }
+            },
+        )
 }
 
 fn match_motive<Input>(context: Context) -> impl Parser<Input, Output = Term>
@@ -68,8 +82,13 @@ parser! {
     where
          [ Input: Stream<Token = char> ]
     {
-        spaces().with((term_fragment(context.clone()).map(Box::new), delimited('{','}', many(attempt(match_section(context.clone()))))).map(|(expression, sections)| {
+        spaces().with((
+            term_fragment(context.clone()).map(Box::new),
+            optional(attempt(string("~with")).skip(spaces()).with(comma_separated1(ident())).skip(spaces())).map(|a| a.unwrap_or(vec![])),
+            delimited('{','}', many(attempt(match_section(context.clone())))
+        )).map(|(expression, indices, sections)| {
             Block::Match(Match {
+                indices,
                 expression,
                 sections
             })
