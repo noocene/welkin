@@ -99,7 +99,7 @@ impl Compile<AbsolutePath> for Data {
                     arg_resolver = arg_resolver.ascend().ascend();
                     arg = Box::new(CoreTerm::Function {
                         return_type: arg,
-                        erased: false,
+                        erased: true,
                         argument_type: Box::new(ty.clone().compile(arg_resolver.proceed())),
                     });
                 }
@@ -123,7 +123,7 @@ impl Compile<AbsolutePath> for Data {
                         ));
                         for (index, _) in &self.indices {
                             prop = Box::new(CoreTerm::Apply {
-                                erased: false,
+                                erased: true,
                                 function: prop,
                                 argument: Box::new(CoreTerm::Variable(
                                     resolver
@@ -167,7 +167,7 @@ impl Compile<AbsolutePath> for Data {
                                     ));
                                     for index in &variant.indices {
                                         prop = Box::new(CoreTerm::Apply {
-                                            erased: false,
+                                            erased: true,
                                             function: prop,
                                             argument: Box::new(
                                                 index.clone().compile(variant_resolver.proceed()),
