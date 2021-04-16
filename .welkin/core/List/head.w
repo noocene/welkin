@@ -1,6 +1,6 @@
 head: 
 * ~as A |-> 
-List[A] ->
+List[A]  ->
 Maybe[A]
 
 A ||>
