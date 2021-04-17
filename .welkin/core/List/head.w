@@ -10,5 +10,5 @@ list |>
     cons(
         head, _
     )   = Maybe::just[A](head)
-    : Maybe[A]
+    : _ |> Maybe[A]
 }

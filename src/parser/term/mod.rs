@@ -22,7 +22,7 @@ mod block;
 use block::{block, block_keyword};
 pub(crate) use block::{Arm, Block, Match, Section};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Term {
     Universe,
     Lambda {

@@ -7,19 +7,20 @@ use combine::{attempt, many, optional, parser, parser::char::spaces, Parser, Str
 
 use super::Block;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Arm {
     pub(crate) expression: Term,
     pub(crate) introductions: Vec<(Ident, bool)>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Section {
     pub(crate) ty: Term,
+    pub(crate) self_binding: Ident,
     pub(crate) arms: Vec<Arm>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Match {
     pub(crate) expression: Box<Term>,
     pub(crate) indices: Vec<Ident>,
@@ -59,11 +60,11 @@ where
         )
 }
 
-fn match_motive<Input>(context: Context) -> impl Parser<Input, Output = Term>
+fn match_motive<Input>(context: Context) -> impl Parser<Input, Output = (Ident, Term)>
 where
     Input: Stream<Token = char>,
 {
-    token(':').with(term(context))
+    token(':').with((ident().skip(string("|>")), term(context)))
 }
 
 fn match_section<Input>(context: Context) -> impl Parser<Input, Output = Section>
@@ -74,7 +75,11 @@ where
         many(attempt(match_arm(context.clone()))),
         match_motive(context.clone()),
     )
-        .map(|(arms, ty)| Section { arms, ty })
+        .map(|(arms, (self_binding, ty))| Section {
+            arms,
+            ty,
+            self_binding,
+        })
 }
 
 parser! {

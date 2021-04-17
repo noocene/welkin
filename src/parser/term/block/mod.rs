@@ -23,7 +23,7 @@ where
     ])))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Block {
     Core(CoreTerm<String>),
     AbsoluteCore(CoreTerm<AbsolutePath>),

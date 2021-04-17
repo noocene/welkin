@@ -6,5 +6,5 @@ nat |>
 ~match nat {
     zero       = Nat::zero
     succ(pred) = pred
-    : Nat
+    : _ |> Nat
 }

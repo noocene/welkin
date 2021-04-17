@@ -6,5 +6,5 @@ nat |>
 ~match nat {
     zero    = Bool::true
     succ(_) = Bool::false
-    : Bool
+    : _ |> Bool
 }

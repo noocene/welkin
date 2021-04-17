@@ -7,7 +7,7 @@ B             ->
 ~match bool {
     true  = A
     false = B
-    : *
+    : _ |> *
 }
 
 A ||> B ||> 
@@ -15,8 +15,8 @@ bool |>
 a |> b |>
 ~match bool {
     true = a
-    : A
+    : _ |> A
 
     false = b
-    : B
+    : _ |> B
 }

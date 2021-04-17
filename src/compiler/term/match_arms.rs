@@ -26,7 +26,12 @@ impl Compile<AbsolutePath> for Match {
                 for index in &self.indices {
                     descent_resolver = descent_resolver.descend(Some(index.clone()));
                 }
-                Some(section.ty.clone().compile(descent_resolver.descend(None)))
+                Some(
+                    section
+                        .ty
+                        .clone()
+                        .compile(descent_resolver.descend(Some(section.self_binding.clone()))),
+                )
             } else {
                 None
             }
@@ -54,6 +59,7 @@ impl Compile<AbsolutePath> for Match {
                 indices: vec![],
                 expression: Box::new(Term::Reference(self_path.clone())),
                 sections: vec![Section {
+                    self_binding: self_ident.clone(),
                     ty: Term::Universe,
                     arms: sections
                         .clone()
@@ -81,7 +87,7 @@ impl Compile<AbsolutePath> for Match {
                     arg = Term::Lambda {
                         argument: index,
                         body: Box::new(arg),
-                        erased: true,
+                        erased: false,
                     };
                 }
                 arg

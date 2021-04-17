@@ -1,19 +1,22 @@
-// TODO make this dependent (don't allow calling it on zero-len)
 head:
 *   ~as A    |->
 Nat ~as size |->
 Vector[
-    A, size
+    A, Nat::succ(size)
 ]             ->
-Maybe[A]
+A
 
 A ||>
-size ||>
+_ ||>
 vector |>
-~match vector ~with _ {
-    nil = Maybe::nothing[A]
+~match vector ~with size {
+    nil = Unit::new
     cons[_](
         head, _
-    )   = Maybe::just[A](head)
-    : Maybe[A]
+    )   = head
+    : _ |> ~match size {
+        zero    = Unit
+        succ(_) = A
+        : _ |> *
+    }
 }

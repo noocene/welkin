@@ -12,9 +12,12 @@ use welkin_core::term::Term;
 fn main() {
     let mut declarations = vec![];
 
-    for entry in WalkDir::new(std::env::args().skip(1).next().unwrap())
-        .into_iter()
-        .skip(1)
+    for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
+        eprintln!("USAGE:\nwelkin <SOURCE_DIR>");
+        exit(1)
+    }))
+    .into_iter()
+    .skip(1)
     {
         let entry = entry.unwrap();
         if entry.file_type().is_dir() {
@@ -44,7 +47,7 @@ fn main() {
             .filter(|a| !a.trim().starts_with("//"))
             .collect::<Vec<_>>()
             .join("\n");
-        let data = position::Stream::new(data.as_str());
+        let data = position::Stream::new(data.trim());
         let (items, remainder) = items().easy_parse(data).unwrap_or_else(|e| {
             println!("{}in {}", e, hr_name);
             exit(1)
