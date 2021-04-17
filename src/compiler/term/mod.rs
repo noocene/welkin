@@ -84,10 +84,12 @@ impl Compile<AbsolutePath> for Term {
                 argument_type,
                 erased,
                 return_type,
+                self_binding,
             } => {
                 let argument_type = Box::new(argument_type.compile(resolver.proceed()));
-                let return_type =
-                    Box::new(return_type.compile(resolver.descend(None).descend(argument_binding)));
+                let return_type = Box::new(
+                    return_type.compile(resolver.descend(self_binding).descend(argument_binding)),
+                );
                 CoreTerm::Function {
                     argument_type,
                     return_type,

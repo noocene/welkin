@@ -45,6 +45,7 @@ pub enum Term {
     Put(Box<Term>),
     Block(Block),
     Function {
+        self_binding: Option<Ident>,
         argument_binding: Option<Ident>,
         argument_type: Box<Term>,
         erased: bool,
@@ -137,25 +138,37 @@ where
                 .map(Box::new)
                 .and(optional(attempt(string("~as")).with(ident()))),
             spaces()
-                .with(choice!(bare_string("|->"), bare_string("->")))
+                .with(
+                    attempt(choice!(bare_string("|->"), bare_string("->")))
+                        .map(|a| (None, a == "|->"))
+                        .or(bare_string("|-")
+                            .with(ident())
+                            .skip(bare_string("->"))
+                            .map(|a| (Some(a), true))),
+                )
                 .skip(spaces()),
         ))))
         .and(term_fragment(context).map(Box::new))
         .map(move |(data, return_type): (Vec<_>, _)| {
-            let mut argument_types = data.into_iter().map(|(a, b)| (a, b == "|->")).rev();
+            let mut argument_types = data.into_iter().rev();
 
-            if let Some(((argument_type, argument_binding), erased)) = argument_types.next() {
+            if let Some(((argument_type, argument_binding), (self_binding, erased))) =
+                argument_types.next()
+            {
                 let mut term = Term::Function {
                     argument_type,
                     return_type,
+                    self_binding,
                     erased,
                     argument_binding,
                 };
-                while let Some(((argument_type, argument_binding), erased)) = argument_types.next()
+                while let Some(((argument_type, argument_binding), (self_binding, erased))) =
+                    argument_types.next()
                 {
                     term = Term::Function {
                         argument_type,
                         argument_binding,
+                        self_binding,
                         erased,
                         return_type: Box::new(term),
                     }
