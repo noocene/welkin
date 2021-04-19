@@ -101,7 +101,7 @@ pub fn type_params<Input>() -> impl Parser<Input, Output = Vec<(Ident, Option<Te
 where
     Input: Stream<Token = char>,
 {
-    spaces().with(many(
+    many(
         (
             many1(letter().or(bare_token('_')))
                 .skip(spaces())
@@ -126,7 +126,7 @@ where
             )
             .skip(spaces())
             .map(|(ident, term)| (ident, term, false))),
-    ))
+    )
 }
 
 parser! {
@@ -138,7 +138,7 @@ parser! {
             let context = context.clone();
             match kw {
                 "data" => (
-                        ident(),
+                        ident().skip(spaces()),
                         type_params(),
                         optional(
                             attempt(token('~')

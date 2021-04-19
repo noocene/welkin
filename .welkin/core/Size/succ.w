@@ -2,9 +2,9 @@ succ:
 Size ->
 Size
 
-size |>
+n |>
 prop ||>
-succ |>
-succ < succ
-A < size[prop](>succ)
-> zero |> succ[size](A(zero))
+f |>
+f < f
+g < n[prop](>f)
+> base |> f[n](g(base))

@@ -1,9 +1,9 @@
 ~data Vector A ~with {
-    size: Nat
+    _: Size
 } {
-    nil ~with { Nat::zero },
-    cons[length: Nat](
+    nil ~with { Size::zero },
+    cons[size: Size](
         head: A, 
-        tail: Vector[A, length]
-    )   ~with { Nat::succ(length) }
+        tail: Vector[A, size]
+    )   ~with { Size::succ(size) }
 }

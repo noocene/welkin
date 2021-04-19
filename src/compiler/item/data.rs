@@ -95,7 +95,7 @@ impl Compile<AbsolutePath> for Data {
                     },
                     return_type: Box::new(CoreTerm::Universe),
                 });
-                for (_, ty) in &self.indices {
+                for (_, ty) in self.indices.iter().rev() {
                     arg_resolver = arg_resolver.ascend().ascend();
                     arg = Box::new(CoreTerm::Function {
                         return_type: arg,

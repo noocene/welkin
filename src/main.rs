@@ -7,7 +7,23 @@ use welkin::{
 };
 
 use walkdir::WalkDir;
-use welkin_core::term::Term;
+use welkin_core::term::{Term, TypedDefinitions};
+
+fn format_size(term: Term<AbsolutePath>) -> String {
+    if let Term::Lambda { body, .. } = term {
+        if let Term::Lambda { body, .. } = *body {
+            let mut term = body;
+            let mut ctr = 0;
+            while let Term::Apply { argument, .. } = *term {
+                ctr += 1;
+                term = argument;
+            }
+            return format!("SIZE = {}", ctr);
+        }
+        panic!()
+    }
+    panic!()
+}
 
 fn main() {
     let mut declarations = vec![];
@@ -127,16 +143,23 @@ fn main() {
     println!("{} ERR", err);
 
     if err == 0 {
-        println!("\nmain normalizes to:\n{:?}", {
-            let mut main = defs
-                .get(&AbsolutePath(vec!["main".into()]))
+        println!("\nmain normalizes to:\n{}", {
+            let (ty, term) = defs
+                .get_typed(&AbsolutePath(vec!["main".into()]))
                 .unwrap()
-                .clone()
-                .1
-                .stratified(&defs)
-                .unwrap();
+                .clone();
+            let mut main = term.stratified(&defs).unwrap();
             main.normalize().unwrap();
-            main.into_inner()
+            let main = main.into_inner();
+
+            if ty
+                .equivalent(&Term::Reference(AbsolutePath(vec!["Size".into()])), &defs)
+                .unwrap()
+            {
+                format_size(main)
+            } else {
+                format!("{:?}", main)
+            }
         });
     } else {
         exit(1);

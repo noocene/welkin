@@ -1,5 +1,5 @@
 ~data Equal A [a: A] ~with {
-    b: A
+    _: A
 } {
     refl ~with { a }
 }

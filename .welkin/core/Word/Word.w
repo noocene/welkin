@@ -1,7 +1,7 @@
 ~data Word ~with {
-    width: Nat
+    _: Size
 } {
-    empty ~with { Nat::zero },
-    low[size: Nat](after: Word[size])  ~with { Nat::succ(size) },
-    high[size: Nat](after: Word[size]) ~with { Nat::succ(size) }
+    empty ~with { Size::zero },
+    low[size: Size](after: Word[size])  ~with { Size::succ(size) },
+    high[size: Size](after: Word[size]) ~with { Size::succ(size) }
 }
