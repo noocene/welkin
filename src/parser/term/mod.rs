@@ -1,5 +1,5 @@
 use combine::{
-    attempt, choice, look_ahead, many, optional, parser,
+    attempt, choice, look_ahead, optional, parser,
     parser::{
         char::{spaces, string as bare_string},
         combinator::Either,
@@ -7,8 +7,10 @@ use combine::{
     token as bare_token, value, Parser, Stream,
 };
 
+use bumpalo::Bump;
+
 use super::{
-    util::{bare_path, delimited, ident, string},
+    util::{bare_path, bump_many, delimited, ident, string, BumpBox, BumpVec},
     Ident, Path,
 };
 
@@ -23,33 +25,33 @@ use block::{block, block_keyword};
 pub(crate) use block::{Arm, Block, Match, Section};
 
 #[derive(Debug, Clone)]
-pub enum Term {
+pub enum Term<'a> {
     Universe,
     Lambda {
-        argument: Ident,
-        body: Box<Term>,
+        argument: Ident<'a>,
+        body: BumpBox<'a, Term<'a>>,
         erased: bool,
     },
-    Reference(Path),
+    Reference(Path<'a>),
     Application {
-        function: Box<Term>,
+        function: BumpBox<'a, Term<'a>>,
         erased: bool,
-        arguments: Vec<Term>,
+        arguments: BumpVec<'a, Term<'a>>,
     },
     Duplicate {
-        binding: Ident,
-        expression: Box<Term>,
-        body: Box<Term>,
+        binding: Ident<'a>,
+        expression: BumpBox<'a, Term<'a>>,
+        body: BumpBox<'a, Term<'a>>,
     },
-    Wrap(Box<Term>),
-    Put(Box<Term>),
-    Block(Block),
+    Wrap(BumpBox<'a, Term<'a>>),
+    Put(BumpBox<'a, Term<'a>>),
+    Block(Block<'a>),
     Function {
-        self_binding: Option<Ident>,
-        argument_binding: Option<Ident>,
-        argument_type: Box<Term>,
+        self_binding: Option<Ident<'a>>,
+        argument_binding: Option<Ident<'a>>,
+        argument_type: BumpBox<'a, Term<'a>>,
         erased: bool,
-        return_type: Box<Term>,
+        return_type: BumpBox<'a, Term<'a>>,
     },
 }
 
@@ -60,33 +62,36 @@ where
     look_ahead(bare_token(t))
 }
 
-fn group<Input>(context: Context) -> impl Parser<Input, Output = Term>
+fn group<'a, Input>(context: Context, bump: &'a Bump) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
-    delimited('(', ')', term(context.clone()))
+    delimited('(', ')', term(context.clone(), bump))
 }
 
-fn group_or_ident<Input>(context: Context) -> impl Parser<Input, Output = Term>
+fn group_or_ident<'a, Input>(
+    context: Context,
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
     next_token_is('(')
-        .with(group(context))
-        .or(bare_path().map(Term::Reference))
+        .with(group(context, bump))
+        .or(bare_path(bump).map(Term::Reference))
 }
 
 parser! {
-    fn recurse[Input](context: Context)(Input) -> Term
+    fn recurse['a, Input](context: Context, bump: &'a Bump)(Input) -> Term<'a>
     where
          [ Input: Stream<Token = char> ]
     {
 
-        let group = group_or_ident(context.clone());
+        let group = group_or_ident(context.clone(), bump);
         let parser = group.skip(spaces()).then(|group| {
             let choice = choice!(
-                next_token_is('[').with(application(true, group.clone(), context.clone())),
-                next_token_is('(').with(application(false, group.clone(), context.clone())),
+                next_token_is('[').with(application(true, group.clone(), context.clone(), bump)),
+                next_token_is('(').with(application(false, group.clone(), context.clone(), bump)),
                 value(group.clone())
             );
 
@@ -94,10 +99,10 @@ parser! {
                 if path.0.len() == 1 {
                     Either::Left(
                         attempt(bare_string("||>"))
-                            .with(lambda(true, path.0.first().unwrap().clone(), context.clone()))
+                            .with(lambda(true, path.0.first().unwrap().clone(), context.clone(), bump))
                             .or(attempt(bare_string("|>"))
-                            .with(lambda(false, path.0.first().unwrap().clone(), context.clone())))
-                            .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone())))
+                            .with(lambda(false, path.0.first().unwrap().clone(), context.clone(), bump)))
+                            .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone(), bump)))
                             .or(choice)
                         )
                 } else {
@@ -107,8 +112,8 @@ parser! {
                 Either::Right(choice)
             }
         });
-        let parser = parser.or(bare_token('\'').with(term_fragment(context.clone()).map(Box::new).map(Term::Wrap)));
-        parser.or(bare_token('>').with(term(context.clone()).map(Box::new).map(Term::Put)))
+        let parser = parser.or(bare_token('\'').with(term_fragment(context.clone(), bump).map(|a| BumpBox::new_in(a, bump)).map(Term::Wrap)));
+        parser.or(bare_token('>').with(term(context.clone(), bump).map(|a| BumpBox::new_in(a, bump)).map(Term::Put)))
     }
 }
 
@@ -118,38 +123,46 @@ pub struct Context {}
 impl Context {}
 
 parser! {
-    fn term_fragment[Input](context: Context)(Input) -> Term
+    fn term_fragment['a, Input](context: Context, bump: &'a Bump)(Input) -> Term<'a>
     where
          [ Input: Stream<Token = char> ]
     {
-        let parser = look_ahead(block_keyword()).with(block(context.clone()).map(Term::Block));
-        let parser = parser.or(recurse(context.clone()));
+        let parser = look_ahead(block_keyword()).with(block(context.clone(), bump).map(Term::Block));
+        let parser = parser.or(recurse(context.clone(), bump));
         parser.or(bare_token('*').with(value(Term::Universe)))
     }
 }
 
-pub fn term<Input>(context: Context) -> impl Parser<Input, Output = Term>
+pub fn term<'a, Input>(context: Context, bump: &'a Bump) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
     spaces()
-        .with(many(attempt((
-            term_fragment(context.clone())
-                .map(Box::new)
-                .and(optional(attempt(string("~as")).with(ident()))),
-            spaces()
-                .with(
-                    attempt(choice!(bare_string("|->"), bare_string("->")))
-                        .map(|a| (None, a == "|->"))
-                        .or(bare_string("|-")
-                            .with(ident())
-                            .skip(bare_string("->"))
-                            .map(|a| (Some(a), true))),
-                )
-                .skip(spaces()),
-        ))))
-        .and(term_fragment(context).map(Box::new))
-        .map(move |(data, return_type): (Vec<_>, _)| {
+        .with(bump_many(
+            {
+                let context = context.clone();
+                move || {
+                    attempt((
+                        term_fragment(context.clone(), bump)
+                            .map(move |a| BumpBox::new_in(a, bump))
+                            .and(optional(attempt(string("~as")).with(ident(bump)))),
+                        spaces()
+                            .with(
+                                attempt(choice!(bare_string("|->"), bare_string("->")))
+                                    .map(|a| (None, a == "|->"))
+                                    .or(bare_string("|-")
+                                        .with(ident(bump))
+                                        .skip(bare_string("->"))
+                                        .map(|a| (Some(a), true))),
+                            )
+                            .skip(spaces()),
+                    ))
+                }
+            },
+            bump,
+        ))
+        .and(term_fragment(context, bump).map(move |a| BumpBox::new_in(a, bump)))
+        .map(move |(data, return_type): (BumpVec<'_, _>, _)| {
             let mut argument_types = data.into_iter().rev();
 
             if let Some(((argument_type, argument_binding), (self_binding, erased))) =
@@ -170,12 +183,12 @@ where
                         argument_binding,
                         self_binding,
                         erased,
-                        return_type: Box::new(term),
+                        return_type: BumpBox::new_in(term, bump),
                     }
                 }
                 term
             } else {
-                *return_type
+                return_type.clone_inner()
             }
         })
 }

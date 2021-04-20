@@ -2,6 +2,7 @@ use crate::{
     compiler::{AbsolutePath, Resolve},
     parser::{
         term::{Arm, Block, Match, Section},
+        util::{BumpBox, BumpVec},
         Ident, Path, Term,
     },
 };
@@ -9,21 +10,23 @@ use welkin_core::term::Term as CoreTerm;
 
 use super::Compile;
 
-impl Compile<AbsolutePath> for Match {
-    type Relative = Path;
+impl<'a> Compile<AbsolutePath> for Match<'a> {
+    type Relative = Path<'a>;
     type Absolute = AbsolutePath;
-    type Unit = Ident;
+    type Unit = Ident<'a>;
 
     fn compile<R: Resolve<Self::Relative, Absolute = Self::Absolute, Unit = Self::Unit>>(
         self,
         resolver: R,
     ) -> CoreTerm<AbsolutePath> {
-        let self_ident = Ident("~match-self-ty".into());
+        let bump = self.expression.bump;
+
+        let self_ident = Ident::from_str("~match-self-ty", bump);
 
         let motive = self.sections.first().and_then(|section| {
             if self.sections.len() == 1 {
                 let mut descent_resolver = resolver.proceed();
-                for index in &self.indices {
+                for index in self.indices.iter() {
                     descent_resolver = descent_resolver.descend(Some(index.clone()));
                 }
                 Some(
@@ -47,29 +50,31 @@ impl Compile<AbsolutePath> for Match {
             .flatten()
             .collect::<Vec<_>>();
 
-        let self_path = Path(vec![self_ident.clone()]);
+        let self_path = Path(BumpVec::unary_in(self_ident.clone(), bump));
 
         let mut descent_resolver = resolver.proceed();
-        for index in &self.indices {
+        for index in self.indices.iter() {
             descent_resolver = descent_resolver.descend(Some(index.clone()));
         }
 
         let motive = motive.unwrap_or_else(|| {
             Match {
-                indices: vec![],
-                expression: Box::new(Term::Reference(self_path.clone())),
-                sections: vec![Section {
-                    self_binding: self_ident.clone(),
-                    ty: Term::Universe,
-                    arms: sections
-                        .clone()
-                        .into_iter()
-                        .map(|(arm, ty)| Arm {
-                            introductions: arm.introductions,
-                            expression: ty,
-                        })
-                        .collect(),
-                }],
+                indices: BumpVec::new_in(bump),
+                expression: BumpBox::new_in(Term::Reference(self_path.clone()), bump),
+                sections: BumpVec::unary_in(
+                    Section {
+                        self_binding: self_ident.clone(),
+                        ty: Term::Universe,
+                        arms: BumpVec::from_iterator(
+                            sections.clone().into_iter().map(|(arm, ty)| Arm {
+                                introductions: arm.introductions,
+                                expression: ty,
+                            }),
+                            bump,
+                        ),
+                    },
+                    bump,
+                ),
             }
             .compile(descent_resolver.descend(Some(self_ident.clone())))
         });
@@ -77,21 +82,24 @@ impl Compile<AbsolutePath> for Match {
         let mut term = Term::Application {
             function: self.expression,
             erased: true,
-            arguments: vec![{
-                let mut arg = Term::Lambda {
-                    argument: self_ident.clone(),
-                    body: Box::new(Term::Block(Block::AbsoluteCore(motive))),
-                    erased: false,
-                };
-                for index in self.indices {
-                    arg = Term::Lambda {
-                        argument: index,
-                        body: Box::new(arg),
+            arguments: BumpVec::unary_in(
+                {
+                    let mut arg = Term::Lambda {
+                        argument: self_ident.clone(),
+                        body: BumpBox::new_in(Term::Block(Block::AbsoluteCore(motive)), bump),
                         erased: false,
                     };
-                }
-                arg
-            }],
+                    for index in self.indices {
+                        arg = Term::Lambda {
+                            argument: index,
+                            body: BumpBox::new_in(arg, bump),
+                            erased: false,
+                        };
+                    }
+                    arg
+                },
+                bump,
+            ),
         };
 
         for (arm, _) in sections.into_iter() {
@@ -100,12 +108,12 @@ impl Compile<AbsolutePath> for Match {
                 expr = Term::Lambda {
                     argument,
                     erased,
-                    body: Box::new(expr),
+                    body: BumpBox::new_in(expr, bump),
                 };
             }
             term = Term::Application {
-                function: Box::new(term),
-                arguments: vec![expr],
+                function: BumpBox::new_in(term, bump),
+                arguments: BumpVec::unary_in(expr, bump),
                 erased: false,
             };
         }

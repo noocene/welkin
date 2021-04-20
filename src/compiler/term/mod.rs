@@ -1,9 +1,8 @@
-use std::convert::Infallible;
-
 use welkin_core::term::Term as CoreTerm;
 
 use crate::parser::{
     term::{Block, Term},
+    util::BumpBox,
     Ident, Path,
 };
 
@@ -22,12 +21,25 @@ pub trait Compile<T> {
     ) -> CoreTerm<T>;
 }
 
-impl Compile<AbsolutePath> for Term {
-    type Relative = Path;
-    type Absolute = AbsolutePath;
-    type Unit = Ident;
+impl<'a, U, T: Compile<U> + Clone> Compile<U> for BumpBox<'a, T> {
+    type Relative = T::Relative;
+    type Absolute = T::Absolute;
+    type Unit = T::Unit;
 
-    fn compile<R: Resolve<Path, Unit = Ident, Absolute = AbsolutePath>>(
+    fn compile<R: Resolve<Self::Relative, Absolute = Self::Absolute, Unit = Self::Unit>>(
+        self,
+        resolver: R,
+    ) -> CoreTerm<U> {
+        self.clone_inner().compile(resolver)
+    }
+}
+
+impl<'a> Compile<AbsolutePath> for Term<'a> {
+    type Relative = Path<'a>;
+    type Absolute = AbsolutePath;
+    type Unit = Ident<'a>;
+
+    fn compile<R: Resolve<Path<'a>, Unit = Ident<'a>, Absolute = AbsolutePath>>(
         self,
         resolver: R,
     ) -> CoreTerm<AbsolutePath> {
@@ -100,24 +112,16 @@ impl Compile<AbsolutePath> for Term {
     }
 }
 
-impl Compile<AbsolutePath> for Block {
-    type Relative = Path;
+impl<'a> Compile<AbsolutePath> for Block<'a> {
+    type Relative = Path<'a>;
     type Absolute = AbsolutePath;
-    type Unit = Ident;
+    type Unit = Ident<'a>;
 
-    fn compile<R: Resolve<Path, Unit = Ident, Absolute = AbsolutePath>>(
+    fn compile<R: Resolve<Path<'a>, Unit = Ident<'a>, Absolute = AbsolutePath>>(
         self,
         resolver: R,
     ) -> CoreTerm<AbsolutePath> {
         match self {
-            Block::Core(core) => core
-                .try_map_reference(|a| {
-                    Ok::<_, Infallible>(match resolver.resolve(&Path(vec![Ident(a)])).unwrap() {
-                        Resolved::Canonicalized(reference) => CoreTerm::Reference(reference),
-                        Resolved::Index(idx) => CoreTerm::Variable(idx),
-                    })
-                })
-                .unwrap(),
             Block::AbsoluteCore(core) => core,
             Block::Match(m) => m.compile(resolver),
         }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs::read_to_string, path::Component, process::ex
 use combine::{stream::position, EasyParser};
 use welkin::{
     compiler::{item::Compile as _, term::Compile as _, AbsolutePath, LocalResolver, Resolve},
-    parser::{items, BlockItem, Ident, Item, Path},
+    parser::{items, BlockItem, BumpString, BumpVec, Ident, Item, Path},
 };
 
 use walkdir::WalkDir;
@@ -27,6 +27,7 @@ fn format_size(term: Term<AbsolutePath>) -> String {
 
 fn main() {
     let mut declarations = vec![];
+    let bump = bumpalo::Bump::new();
 
     for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
         eprintln!("USAGE:\nwelkin <SOURCE_DIR>");
@@ -64,7 +65,7 @@ fn main() {
             .collect::<Vec<_>>()
             .join("\n");
         let data = position::Stream::new(data.trim());
-        let (items, remainder) = items().easy_parse(data).unwrap_or_else(|e| {
+        let (items, remainder) = items(&bump).easy_parse(data).unwrap_or_else(|e| {
             println!("{}in {}", e, hr_name);
             exit(1)
         });
@@ -83,11 +84,16 @@ fn main() {
                         vec![t.ident.0]
                     } else {
                         name.clone()
+                            .into_iter()
+                            .map(|a| BumpString::from_str(&a, &bump))
+                            .collect()
                     };
 
                     declarations.push((
-                        LocalResolver::new()
-                            .canonicalize(Path(name.clone().into_iter().map(Ident).collect())),
+                        LocalResolver::new().canonicalize(Path(BumpVec::from_iterator(
+                            name.clone().into_iter().map(Ident),
+                            &bump,
+                        ))),
                         ty,
                         term,
                     ));
