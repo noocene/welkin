@@ -1,5 +1,5 @@
 use combine::{
-    attempt, between, optional, parser,
+    between, optional, parser,
     parser::char::{letter, spaces, string as bare_string},
     token as bare_token, value, Parser, Stream,
 };
@@ -110,19 +110,18 @@ pub fn comma_separated<'a, Input, T: Clone + 'a, P: Parser<Input, Output = T>>(
 where
     Input: Stream<Token = char>,
 {
-    attempt(p())
-        .then(move |first| {
-            let mut buffer = BumpVec::new_in(bump);
-            let p = p.clone();
-            parser(move |input| {
-                buffer.clear();
-                buffer.extend(Some(first.clone()));
-                let mut iter = bare_token(',').with(p()).iter(input);
-                buffer.extend(&mut iter);
-                iter.into_result(replace(&mut buffer, BumpVec::new_in(bump)))
-            })
+    p().then(move |first| {
+        let mut buffer = BumpVec::new_in(bump);
+        let p = p.clone();
+        parser(move |input| {
+            buffer.clear();
+            buffer.extend(Some(first.clone()));
+            let mut iter = bare_token(',').skip(spaces()).with(p()).iter(input);
+            buffer.extend(&mut iter);
+            iter.into_result(replace(&mut buffer, BumpVec::new_in(bump)))
         })
-        .or(value(BumpVec::new_in(bump)))
+    })
+    .or(value(BumpVec::new_in(bump)))
 }
 
 pub fn comma_separated1<'a, Input, T: Clone + 'a, P: Parser<Input, Output = T>>(
@@ -138,7 +137,7 @@ where
         parser(move |input| {
             buffer.clear();
             buffer.extend(Some(first.clone()));
-            let mut iter = bare_token(',').with(p()).iter(input);
+            let mut iter = bare_token(',').skip(spaces()).with(p()).iter(input);
             buffer.extend(&mut iter);
             iter.into_result(replace(&mut buffer, BumpVec::new_in(bump)))
         })

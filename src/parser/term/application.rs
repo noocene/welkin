@@ -1,22 +1,25 @@
-use bumpalo::Bump;
-use combine::{parser, parser::combinator::Either, value, Parser, Stream};
+use std::{cell::RefCell, rc::Rc};
 
-use crate::parser::util::{comma_separated1, delimited, BumpBox};
+use bumpalo::Bump;
+use combine::{any, look_ahead, parser::combinator::Either, value, Parser, Stream};
+
+use crate::parser::{
+    util::{comma_separated1, delimited, BumpBox},
+    BumpVec,
+};
 
 use super::{term, Context, Term};
 
-pub fn application<'a, Input>(
-    erased: bool,
-    group: Term<'a>,
+pub fn concrete_application<'a, Input>(
     context: Context,
     bump: &'a Bump,
-) -> impl Parser<Input, Output = Term<'a>>
+) -> impl Parser<Input, Output = BumpVec<'a, Term<'a>>>
 where
     Input: Stream<Token = char>,
 {
-    let parser = delimited(
-        if erased { '[' } else { '(' },
-        if erased { ']' } else { ')' },
+    delimited(
+        '(',
+        ')',
         comma_separated1(
             {
                 let context = context.clone();
@@ -25,27 +28,61 @@ where
             bump,
         ),
     )
-    .map(move |arguments| Term::Application {
-        erased,
-        function: BumpBox::new_in(group.clone(), bump),
-        arguments,
-    });
-    if erased {
-        Either::Left(
-            parser.then(move |term| {
-                recurse(false, term.clone(), context.clone(), bump).or(value(term))
-            }),
-        )
-    } else {
-        Either::Right(parser)
-    }
 }
 
-parser! {
-    fn recurse['a, Input](erased: bool, group: Term<'a>, context: Context, bump: &'a Bump)(Input) -> Term<'a>
-    where
-         [ Input: Stream<Token = char> ]
-    {
-        application(erased.clone(), group.clone(), context.clone(), bump)
+pub fn application<'a, Input>(
+    erased: bool,
+    group: Rc<RefCell<Option<Term<'a>>>>,
+    context: Context,
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Term<'a>>
+where
+    Input: Stream<Token = char>,
+{
+    if erased {
+        let parser = delimited(
+            '[',
+            ']',
+            comma_separated1(
+                {
+                    let context = context.clone();
+                    move || term(context.clone(), bump)
+                },
+                bump,
+            ),
+        )
+        .map(move |arguments| Term::Application {
+            erased: true,
+            function: BumpBox::new_in(group.borrow_mut().take().unwrap(), bump),
+            arguments,
+        });
+        Either::Left(parser.then(move |term| {
+            let term = Rc::new(RefCell::new(Some(term)));
+            look_ahead(any()).then({
+                let context = context.clone();
+                move |token| {
+                    if token == '(' {
+                        Either::Left(concrete_application(context.clone(), bump).map({
+                            let term = term.clone();
+                            move |arguments| Term::Application {
+                                erased: false,
+                                function: BumpBox::new_in(term.borrow_mut().take().unwrap(), bump),
+                                arguments,
+                            }
+                        }))
+                    } else {
+                        Either::Right(value(term.borrow_mut().take().unwrap()))
+                    }
+                }
+            })
+        }))
+    } else {
+        Either::Right(
+            concrete_application(context, bump).map(move |arguments| Term::Application {
+                erased: false,
+                function: BumpBox::new_in(group.borrow_mut().take().unwrap(), bump),
+                arguments,
+            }),
+        )
     }
 }

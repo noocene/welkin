@@ -1,12 +1,16 @@
 use crate::parser::{
     term::{term, term_fragment, Context},
     util::{
-        bump_many, comma_separated, comma_separated1, delimited, ident, string, token, BumpBox,
-        BumpVec,
+        bare_ident, bump_many, comma_separated, comma_separated1, delimited, ident, string, token,
+        BumpBox, BumpVec,
     },
     Ident, Term,
 };
-use combine::{attempt, optional, parser, parser::char::spaces, Parser, Stream};
+use combine::{
+    optional, parser,
+    parser::char::{spaces, string as bare_string},
+    token as bare_token, Parser, Stream,
+};
 
 use bumpalo::Bump;
 
@@ -38,7 +42,7 @@ where
 {
     (
         (
-            ident(bump),
+            bare_ident(bump),
             optional(delimited(
                 '[',
                 ']',
@@ -72,7 +76,7 @@ fn match_motive<'a, Input>(
 where
     Input: Stream<Token = char>,
 {
-    token(':').with((ident(bump).skip(string("|>")), term(context, bump)))
+    bare_token(':').with((ident(bump).skip(string("|>")), term(context, bump)))
 }
 
 fn match_section<'a, Input>(
@@ -86,7 +90,7 @@ where
         bump_many(
             {
                 let context = context.clone();
-                move || attempt(match_arm(context.clone(), bump))
+                move || match_arm(context.clone(), bump).skip(spaces())
             },
             bump,
         ),
@@ -106,12 +110,12 @@ parser! {
     {
         let bump = *bump;
         spaces().with((
-            term_fragment(context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)),
-            optional(attempt(string("~with")).skip(spaces()).with(comma_separated1(move || ident(bump), bump)).skip(spaces())).map(move |a| a.unwrap_or_else(move || BumpVec::new_in(bump))),
-            delimited('{','}', bump_many({
+            term_fragment(context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).skip(spaces()),
+            optional(bare_string("~with").skip(spaces()).with(comma_separated1(move || ident(bump), bump)).skip(spaces())).map(move |a| a.unwrap_or_else(move || BumpVec::new_in(bump))),
+            delimited('{','}', spaces().with(bump_many({
                 let context = context.clone();
-                move || attempt(match_section(context.clone(), bump))
-            }, bump)
+                move || match_section(context.clone(), bump)
+            }, bump))
         )).map(|(expression, indices, sections)| {
             Block::Match(Match {
                 indices,

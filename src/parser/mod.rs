@@ -1,4 +1,6 @@
-use combine::{attempt, choice, optional, parser, parser::char::spaces, value, Parser, Stream};
+use combine::{
+    choice, optional, parser, parser::char::spaces, token as bare_token, value, Parser, Stream,
+};
 
 pub mod term;
 pub use term::Term;
@@ -72,7 +74,7 @@ parser! {
         let bump = *bump;
         let context = &*context;
         (
-            ident(bump),
+            bare_ident(bump),
             optional(delimited('[', ']', comma_separated({
                 let context = context.clone();
                 move || (ident(bump).skip(token(':')), term(context.clone(), bump), value(true))
@@ -80,8 +82,8 @@ parser! {
             optional(delimited('(', ')', comma_separated({
                 let context = context.clone();
                 move || (ident(bump).skip(token(':')), term(context.clone(), bump), value(false))
-            }, bump))),
-            optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(move || term(context.clone(), bump), bump))))).map(move |data| data.unwrap_or(BumpVec::new_in(bump)))
+            }, bump))).skip(spaces()),
+            optional(bare_token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(move || term(context.clone(), bump), bump)))).map(move |data| data.unwrap_or(BumpVec::new_in(bump)))
         )
             .map(move |(ident, erased_inhabitants, inhabitants, indices)| {
                 let mut erased_inhabitants = erased_inhabitants.unwrap_or(BumpVec::new_in(bump));
@@ -105,12 +107,17 @@ fn data<'a, Input>(
 where
     Input: Stream<Token = char>,
 {
-    comma_separated(move || variant(context.clone(), bump), bump).map(move |variants| Data {
-        variants,
-        ident: ident.clone(),
-        type_arguments: type_arguments.clone(),
-        indices: indices.clone(),
-    })
+    spaces()
+        .with(comma_separated(
+            move || variant(context.clone(), bump),
+            bump,
+        ))
+        .map(move |variants| Data {
+            variants,
+            ident: ident.clone(),
+            type_arguments: type_arguments.clone(),
+            indices: indices.clone(),
+        })
 }
 
 pub fn type_params<'a, Input>(
@@ -136,7 +143,7 @@ where
                     ')',
                     (
                         ident(bump),
-                        optional(attempt(token(':').with(term(Default::default(), bump)))),
+                        optional(token(':').with(term(Default::default(), bump))),
                     ),
                 )
                 .skip(spaces())
@@ -153,20 +160,20 @@ parser! {
     {
         let bump = *bump;
         let context = context.clone();
-        attempt(block_item_keyword()).then(move |kw| {
+        block_item_keyword().then(move |kw| {
             let context = context.clone();
             match kw {
                 "data" => (
                         ident(bump).skip(spaces()),
                         type_params(bump),
                         optional(
-                            attempt(token('~')
+                            token('~')
                                 .and(string("with"))
                                 .skip(spaces())
                                 .with(delimited('{','}', comma_separated({
                                     let context = context.clone();
                                     move || (ident(bump).skip(token(':')), term(context.clone(), bump))
-                                }, bump)).skip(spaces())))
+                                }, bump)).skip(spaces()))
                         )
                     ).then(move |(ident, type_arguments, indices)| {
                     delimited(

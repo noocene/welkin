@@ -10,4 +10,4 @@ combine = "4.5.2"
 ring = "0.16.20"
 serde = { version = "1.0.125", features = ["derive"] }
 walkdir = "2.3.2"
-welkin-core = { path = "../welkin-core" }
+welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
