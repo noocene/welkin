@@ -45,6 +45,7 @@ pub trait Resolve<T> {
     type Unit;
 
     fn resolve(&self, item: &T) -> Result<Resolved<Self::Absolute>, Self::Error>;
+    fn resolve_unit(&self, item: &Self::Unit) -> Result<Resolved<Self::Absolute>, Self::Error>;
     fn canonicalize(&self, item: T) -> Self::Absolute;
     fn descend(&self, item: Option<Self::Unit>) -> Self;
     fn ascend(&self) -> Self;
@@ -53,21 +54,21 @@ pub trait Resolve<T> {
 
 #[must_use]
 #[derive(Debug)]
-pub struct LocalResolver(Vec<Option<Ident>>);
+pub struct LocalResolver<'a>(Vec<Option<Ident<'a>>>);
 
-impl LocalResolver {
+impl<'a> LocalResolver<'a> {
     pub fn new() -> Self {
-        LocalResolver(vec![])
+        LocalResolver(Vec::new())
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct NameError(pub String);
 
-impl Resolve<Path> for LocalResolver {
+impl<'a> Resolve<Path<'a>> for LocalResolver<'a> {
     type Absolute = AbsolutePath;
     type Error = NameError;
-    type Unit = Ident;
+    type Unit = Ident<'a>;
 
     fn resolve(&self, item: &Path) -> Result<Resolved<Self::Absolute>, Self::Error> {
         Ok(if item.0.len() == 1 {
@@ -81,13 +82,17 @@ impl Resolve<Path> for LocalResolver {
                 .unwrap_or_else(|| Resolved::Canonicalized(self.canonicalize(item.clone())))
         } else {
             Resolved::Canonicalized(AbsolutePath(
-                item.0.clone().into_iter().map(|a| a.0).collect(),
+                item.0
+                    .clone()
+                    .into_iter()
+                    .map(|a| a.0.to_string())
+                    .collect(),
             ))
         })
     }
 
     fn canonicalize(&self, path: Path) -> Self::Absolute {
-        AbsolutePath(path.0.into_iter().map(|a| a.0).collect())
+        AbsolutePath(path.0.into_iter().map(|a| a.0.to_string()).collect())
     }
 
     fn descend(&self, item: Option<Self::Unit>) -> Self {
@@ -104,5 +109,18 @@ impl Resolve<Path> for LocalResolver {
 
     fn proceed(&self) -> Self {
         LocalResolver(self.0.clone())
+    }
+
+    fn resolve_unit(&self, item: &Self::Unit) -> Result<Resolved<Self::Absolute>, Self::Error> {
+        Ok(self
+            .0
+            .iter()
+            .rev()
+            .enumerate()
+            .find(|(_, a)| a.as_ref() == Some(item))
+            .map(|id| Resolved::Index(Index(id.0)))
+            .unwrap_or_else(|| {
+                Resolved::Canonicalized(AbsolutePath(vec![item.0.clone().to_string()]))
+            }))
     }
 }

@@ -5,6 +5,7 @@ authors = ["Izzy Swart <zenerboson@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+bumpalo = { version = "3.6.1", features = ["boxed", "collections"] }
 combine = "4.5.2"
 ring = "0.16.20"
 serde = { version = "1.0.125", features = ["derive"] }

@@ -4,21 +4,23 @@ use std::fmt::Debug;
 
 use crate::{
     compiler::{term::Compile as _, AbsolutePath, Resolve},
-    parser::{Data, Ident, Path, Term},
+    parser::{util::BumpVec, Data, Ident, Path, Term},
 };
 
 use super::Compile;
 
-impl Compile<AbsolutePath> for Data {
-    type Relative = Path;
+impl<'a> Compile<AbsolutePath> for Data<'a> {
+    type Relative = Path<'a>;
     type Absolute = AbsolutePath;
-    type Unit = Ident;
+    type Unit = Ident<'a>;
 
-    fn compile<R: Debug + Resolve<Path, Unit = Ident, Absolute = AbsolutePath>>(
+    fn compile<R: Debug + Resolve<Path<'a>, Unit = Ident<'a>, Absolute = AbsolutePath>>(
         self,
         r: R,
     ) -> Vec<(AbsolutePath, CoreTerm<AbsolutePath>, CoreTerm<AbsolutePath>)> {
-        let canonical_path = r.canonicalize(Path(vec![self.ident.clone()]));
+        let bump = self.variants.bump;
+
+        let canonical_path = r.canonicalize(Path(BumpVec::unary_in(self.ident.clone(), bump)));
 
         let mut declarations = vec![];
 
@@ -63,14 +65,14 @@ impl Compile<AbsolutePath> for Data {
             resolver = resolver.descend(Some(arg.clone()));
         }
 
-        let self_ident = Ident("~self".into());
-        let prop_ident = Ident("~prop".into());
+        let self_ident = Ident::from_str("~self", bump);
+        let prop_ident = Ident::from_str("~prop", bump);
 
         let mut term = Box::new(CoreTerm::Function {
             erased: true,
             argument_type: {
                 let mut arg_resolver = resolver.proceed();
-                for (index, _) in &self.indices {
+                for (index, _) in self.indices.iter() {
                     arg_resolver = arg_resolver.descend(None).descend(Some(index.clone()));
                 }
                 let mut arg = Box::new(CoreTerm::Function {
@@ -85,7 +87,7 @@ impl Compile<AbsolutePath> for Data {
                                 function: ty,
                                 argument: Box::new(CoreTerm::Variable(
                                     arg_resolver
-                                        .resolve(&Path(vec![arg.clone()]))
+                                        .resolve(&Path(BumpVec::unary_in(arg.clone(), bump)))
                                         .unwrap()
                                         .unwrap_index(),
                                 )),
@@ -109,7 +111,7 @@ impl Compile<AbsolutePath> for Data {
                 resolver = resolver.descend(Some(self_ident.clone()));
                 resolver = resolver.descend(Some(prop_ident.clone()));
 
-                for variant in &self.variants {
+                for variant in self.variants.iter() {
                     resolver = resolver.descend(None).descend(Some(variant.ident.clone()));
                 }
                 let mut ty = Box::new(CoreTerm::Apply {
@@ -117,17 +119,17 @@ impl Compile<AbsolutePath> for Data {
                     function: {
                         let mut prop = Box::new(CoreTerm::Variable(
                             resolver
-                                .resolve(&Path(vec![prop_ident.clone()]))
+                                .resolve(&Path(BumpVec::unary_in(prop_ident.clone(), bump)))
                                 .unwrap()
                                 .unwrap_index(),
                         ));
-                        for (index, _) in &self.indices {
+                        for (index, _) in self.indices.iter() {
                             prop = Box::new(CoreTerm::Apply {
                                 erased: false,
                                 function: prop,
                                 argument: Box::new(CoreTerm::Variable(
                                     resolver
-                                        .resolve(&Path(vec![index.clone()]))
+                                        .resolve(&Path(BumpVec::unary_in(index.clone(), bump)))
                                         .unwrap()
                                         .unwrap_index(),
                                 )),
@@ -137,7 +139,7 @@ impl Compile<AbsolutePath> for Data {
                     },
                     argument: Box::new(CoreTerm::Variable(
                         resolver
-                            .resolve(&Path(vec![self_ident.clone()]))
+                            .resolve(&Path(BumpVec::unary_in(self_ident.clone(), bump)))
                             .unwrap()
                             .unwrap_index(),
                     )),
@@ -150,7 +152,7 @@ impl Compile<AbsolutePath> for Data {
                         erased: false,
                         argument_type: {
                             let mut variant_resolver = resolver.proceed();
-                            for (inhabitant, _, _) in &variant.inhabitants {
+                            for (inhabitant, _, _) in variant.inhabitants.iter() {
                                 variant_resolver = variant_resolver.descend(None);
                                 variant_resolver =
                                     variant_resolver.descend(Some(inhabitant.clone()));
@@ -161,11 +163,14 @@ impl Compile<AbsolutePath> for Data {
                                 function: {
                                     let mut prop = Box::new(CoreTerm::Variable(
                                         variant_resolver
-                                            .resolve(&Path(vec![prop_ident.clone()]))
+                                            .resolve(&Path(BumpVec::unary_in(
+                                                prop_ident.clone(),
+                                                bump,
+                                            )))
                                             .unwrap()
                                             .unwrap_index(),
                                     ));
-                                    for index in &variant.indices {
+                                    for index in variant.indices.iter() {
                                         prop = Box::new(CoreTerm::Apply {
                                             erased: false,
                                             function: prop,
@@ -177,11 +182,14 @@ impl Compile<AbsolutePath> for Data {
                                     prop
                                 },
                                 argument: {
-                                    let mut function =
-                                        Box::new(CoreTerm::Reference(resolver.canonicalize(Path(
-                                            vec![self.ident.clone(), variant.ident.clone()],
-                                        ))));
-                                    for (arg, _, erased) in &self.type_arguments {
+                                    let mut function = Box::new(CoreTerm::Reference(
+                                        resolver.canonicalize(Path(BumpVec::binary_in(
+                                            self.ident.clone(),
+                                            variant.ident.clone(),
+                                            bump,
+                                        ))),
+                                    ));
+                                    for (arg, _, erased) in self.type_arguments.iter() {
                                         let erased = *erased;
 
                                         function = Box::new(CoreTerm::Apply {
@@ -189,19 +197,25 @@ impl Compile<AbsolutePath> for Data {
                                             erased,
                                             argument: Box::new(CoreTerm::Variable(
                                                 variant_resolver
-                                                    .resolve(&Path(vec![arg.clone()]))
+                                                    .resolve(&Path(BumpVec::unary_in(
+                                                        arg.clone(),
+                                                        bump,
+                                                    )))
                                                     .unwrap()
                                                     .unwrap_index(),
                                             )),
                                         })
                                     }
-                                    for (ident, _, erased) in &variant.inhabitants {
+                                    for (ident, _, erased) in variant.inhabitants.iter() {
                                         let erased = *erased;
 
                                         function = Box::new(CoreTerm::Apply {
                                             argument: Box::new(CoreTerm::Variable(
                                                 variant_resolver
-                                                    .resolve(&Path(vec![ident.clone()]))
+                                                    .resolve(&Path(BumpVec::unary_in(
+                                                        ident.clone(),
+                                                        bump,
+                                                    )))
                                                     .unwrap()
                                                     .unwrap_index(),
                                             )),
@@ -214,7 +228,7 @@ impl Compile<AbsolutePath> for Data {
                             });
 
                             let mut arg_resolver = resolver.proceed();
-                            for (id, _, _) in &variant.inhabitants {
+                            for (id, _, _) in variant.inhabitants.iter() {
                                 arg_resolver = arg_resolver.descend(None).descend(Some(id.clone()));
                             }
 
@@ -247,20 +261,24 @@ impl Compile<AbsolutePath> for Data {
 
         declarations.push((canonical_path.clone(), *return_type, *term));
 
-        for variant in &self.variants {
+        for variant in self.variants.iter() {
             let mut resolver = r.proceed();
 
-            let path = resolver.canonicalize(Path(vec![self.ident.clone(), variant.ident.clone()]));
+            let path = resolver.canonicalize(Path(BumpVec::binary_in(
+                self.ident.clone(),
+                variant.ident.clone(),
+                bump,
+            )));
             let mut ty = Box::new(CoreTerm::Reference(canonical_path.clone()));
 
             let mut t_resolver = resolver.proceed();
 
-            for (arg, _, _) in &self.type_arguments {
+            for (arg, _, _) in self.type_arguments.iter() {
                 t_resolver = t_resolver.descend(None);
                 t_resolver = t_resolver.descend(Some(arg.clone()));
             }
 
-            for (arg, _, _) in &variant.inhabitants {
+            for (arg, _, _) in variant.inhabitants.iter() {
                 t_resolver = t_resolver.descend(None);
                 t_resolver = t_resolver.descend(Some(arg.clone()));
             }
@@ -275,14 +293,14 @@ impl Compile<AbsolutePath> for Data {
                     function: ty,
                     argument: Box::new(CoreTerm::Variable(
                         ty_resolver
-                            .resolve(&Path(vec![arg.clone()]))
+                            .resolve(&Path(BumpVec::unary_in(arg.clone(), bump)))
                             .unwrap()
                             .unwrap_index(),
                     )),
                 });
             }
 
-            for index in &variant.indices {
+            for index in variant.indices.iter() {
                 ty = Box::new(CoreTerm::Apply {
                     erased: true,
                     function: ty,
@@ -318,28 +336,28 @@ impl Compile<AbsolutePath> for Data {
                 });
             }
 
-            for (arg, _, _) in &self.type_arguments {
+            for (arg, _, _) in self.type_arguments.iter() {
                 resolver = resolver.descend(Some(arg.clone()));
             }
 
-            for (ident, _, _) in &variant.inhabitants {
+            for (ident, _, _) in variant.inhabitants.iter() {
                 resolver = resolver.descend(Some(ident.clone()));
             }
 
-            resolver = resolver.descend(Some(Ident("~prop".into())));
+            resolver = resolver.descend(Some(prop_ident.clone()));
 
-            for variant in &self.variants {
+            for variant in self.variants.iter() {
                 resolver = resolver.descend(Some(variant.ident.clone()));
             }
 
             let mut term = Box::new(CoreTerm::Variable(
                 resolver
-                    .resolve(&Path(vec![variant.ident.clone()]))
+                    .resolve(&Path(BumpVec::unary_in(variant.ident.clone(), bump)))
                     .unwrap()
                     .unwrap_index(),
             ));
 
-            for (ident, _, erased) in &variant.inhabitants {
+            for (ident, _, erased) in variant.inhabitants.iter() {
                 let erased = *erased;
 
                 term = Box::new(CoreTerm::Apply {
@@ -347,7 +365,7 @@ impl Compile<AbsolutePath> for Data {
                     erased,
                     argument: Box::new(CoreTerm::Variable(
                         resolver
-                            .resolve(&Path(vec![ident.clone()]))
+                            .resolve(&Path(BumpVec::unary_in(ident.clone(), bump)))
                             .unwrap()
                             .unwrap_index(),
                     )),

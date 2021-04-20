@@ -1,9 +1,11 @@
-use std::{collections::HashMap, fs::read_to_string, path::Component, process::exit};
+use std::{
+    collections::HashMap, fs::read_to_string, path::Component, process::exit, time::SystemTime,
+};
 
 use combine::{stream::position, EasyParser};
 use welkin::{
     compiler::{item::Compile as _, term::Compile as _, AbsolutePath, LocalResolver, Resolve},
-    parser::{items, BlockItem, Ident, Item, Path},
+    parser::{items, BlockItem, BumpString, BumpVec, Ident, Item, Path},
 };
 
 use walkdir::WalkDir;
@@ -27,6 +29,11 @@ fn format_size(term: Term<AbsolutePath>) -> String {
 
 fn main() {
     let mut declarations = vec![];
+    let bump = bumpalo::Bump::new();
+
+    let mut parsing_time = 0;
+    let mut tc_time = 0;
+    let mut codegen_time = 0;
 
     for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
         eprintln!("USAGE:\nwelkin <SOURCE_DIR>");
@@ -64,10 +71,14 @@ fn main() {
             .collect::<Vec<_>>()
             .join("\n");
         let data = position::Stream::new(data.trim());
-        let (items, remainder) = items().easy_parse(data).unwrap_or_else(|e| {
+        let now = SystemTime::now();
+
+        let (items, remainder) = items(&bump).easy_parse(data).unwrap_or_else(|e| {
             println!("{}in {}", e, hr_name);
             exit(1)
         });
+
+        parsing_time += now.elapsed().unwrap().as_millis();
         if !remainder.input.is_empty() {
             eprintln!(
                 "PARSING ENDED BEFORE EOF IN {} WITH \n{}\nREMAINING",
@@ -75,6 +86,7 @@ fn main() {
             );
             exit(1);
         } else {
+            let now = SystemTime::now();
             for item in items {
                 if let Item::Declaration(t) = item {
                     let ty = t.ty.compile(LocalResolver::new());
@@ -83,11 +95,16 @@ fn main() {
                         vec![t.ident.0]
                     } else {
                         name.clone()
+                            .into_iter()
+                            .map(|a| BumpString::from_str(&a, &bump))
+                            .collect()
                     };
 
                     declarations.push((
-                        LocalResolver::new()
-                            .canonicalize(Path(name.clone().into_iter().map(Ident).collect())),
+                        LocalResolver::new().canonicalize(Path(BumpVec::from_iterator(
+                            name.clone().into_iter().map(Ident),
+                            &bump,
+                        ))),
                         ty,
                         term,
                     ));
@@ -99,17 +116,20 @@ fn main() {
                     }
                 }
             }
+            codegen_time += now.elapsed().unwrap().as_millis();
         }
     }
 
     let defs: HashMap<_, _> = declarations
         .clone()
         .into_iter()
-        .map(|(a, b, c)| (a, (b, c)))
+        .map(|(a, b, c): (AbsolutePath, Term<_, _>, Term<_, _>)| (a, (b, c)))
         .collect();
     let mut ok = 0;
     let mut err = 0;
     let mut errs = String::new();
+
+    let now = SystemTime::now();
     for (path, (ty, term)) in &defs {
         let mut er = 0;
         if let Err(e) = term.is_stratified(&defs) {
@@ -137,10 +157,16 @@ fn main() {
         }
         err += er;
     }
+    tc_time += now.elapsed().unwrap().as_millis();
+
     println!("{}", errs);
     println!("CHECKED {}", ok + err);
     println!("{} OK", ok);
     println!("{} ERR", err);
+    println!(
+        "PARSING {}ms | CODEGEN {}ms | TC {}ms",
+        parsing_time, codegen_time, tc_time
+    );
 
     if err == 0 {
         println!("\nmain normalizes to:\n{}", {

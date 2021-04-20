@@ -1,5 +1,7 @@
+use std::{cell::RefCell, iter::once, rc::Rc};
+
 use combine::{
-    attempt, choice, look_ahead, many, optional, parser,
+    choice, look_ahead, optional, parser,
     parser::{
         char::{spaces, string as bare_string},
         combinator::Either,
@@ -7,8 +9,10 @@ use combine::{
     token as bare_token, value, Parser, Stream,
 };
 
+use bumpalo::Bump;
+
 use super::{
-    util::{bare_path, delimited, ident, string},
+    util::{bare_path, delimited, ident, BumpBox, BumpVec},
     Ident, Path,
 };
 
@@ -23,33 +27,33 @@ use block::{block, block_keyword};
 pub(crate) use block::{Arm, Block, Match, Section};
 
 #[derive(Debug, Clone)]
-pub enum Term {
+pub enum Term<'a> {
     Universe,
     Lambda {
-        argument: Ident,
-        body: Box<Term>,
+        argument: Ident<'a>,
+        body: BumpBox<'a, Term<'a>>,
         erased: bool,
     },
-    Reference(Path),
+    Reference(Path<'a>),
     Application {
-        function: Box<Term>,
+        function: BumpBox<'a, Term<'a>>,
         erased: bool,
-        arguments: Vec<Term>,
+        arguments: BumpVec<'a, Term<'a>>,
     },
     Duplicate {
-        binding: Ident,
-        expression: Box<Term>,
-        body: Box<Term>,
+        binding: Ident<'a>,
+        expression: BumpBox<'a, Term<'a>>,
+        body: BumpBox<'a, Term<'a>>,
     },
-    Wrap(Box<Term>),
-    Put(Box<Term>),
-    Block(Block),
+    Wrap(BumpBox<'a, Term<'a>>),
+    Put(BumpBox<'a, Term<'a>>),
+    Block(Block<'a>),
     Function {
-        self_binding: Option<Ident>,
-        argument_binding: Option<Ident>,
-        argument_type: Box<Term>,
+        self_binding: Option<Ident<'a>>,
+        argument_binding: Option<Ident<'a>>,
+        argument_type: BumpBox<'a, Term<'a>>,
         erased: bool,
-        return_type: Box<Term>,
+        return_type: BumpBox<'a, Term<'a>>,
     },
 }
 
@@ -60,44 +64,59 @@ where
     look_ahead(bare_token(t))
 }
 
-fn group<Input>(context: Context) -> impl Parser<Input, Output = Term>
+fn group<'a, Input>(context: Context, bump: &'a Bump) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
-    delimited('(', ')', term(context.clone()))
+    delimited('(', ')', term(context.clone(), bump))
 }
 
-fn group_or_ident<Input>(context: Context) -> impl Parser<Input, Output = Term>
+fn group_or_ident<'a, Input>(
+    context: Context,
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
     next_token_is('(')
-        .with(group(context))
-        .or(bare_path().map(Term::Reference))
+        .with(group(context, bump))
+        .or(bare_path(bump).map(Term::Reference))
 }
 
 parser! {
-    fn recurse[Input](context: Context)(Input) -> Term
+    fn recurse['a, Input](a_context: Context, bump: &'a Bump)(Input) -> Term<'a>
     where
          [ Input: Stream<Token = char> ]
     {
-
-        let group = group_or_ident(context.clone());
-        let parser = group.skip(spaces()).then(|group| {
+        let bump = *bump;
+        let group = group_or_ident(a_context.clone(), bump);
+        let context = a_context.clone();
+        let parser = group.skip(spaces()).then(move |group| {
+            let path = if let Term::Reference(path) = &group {
+                Some(path.clone())
+            } else {
+                None
+            };
+            let group = Rc::new(RefCell::new(Some(group)));
             let choice = choice!(
-                next_token_is('[').with(application(true, group.clone(), context.clone())),
-                next_token_is('(').with(application(false, group.clone(), context.clone())),
-                value(group.clone())
+                next_token_is('[').with(application(true, group.clone(), context.clone(), bump)),
+                next_token_is('(').with(application(false, group.clone(), context.clone(), bump)),
+                value(()).then({
+                    let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
+                })
             );
 
-            if let Term::Reference(path) = &group {
+            if let Some(path) = path {
                 if path.0.len() == 1 {
                     Either::Left(
-                        attempt(bare_string("||>"))
-                            .with(lambda(true, path.0.first().unwrap().clone(), context.clone()))
-                            .or(attempt(bare_string("|>"))
-                            .with(lambda(false, path.0.first().unwrap().clone(), context.clone())))
-                            .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone())))
+                        bare_token('|').with(choice!(bare_token('>').with(value(false)), bare_string("|>").with(value(true))).then({
+                            let context = context.clone();
+                            let path = path.clone();
+                            move |erased| {
+                                lambda(erased, path.0.first().unwrap().clone(), context.clone(), bump)
+                            }
+                        }))
+                            .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone(), bump)))
                             .or(choice)
                         )
                 } else {
@@ -107,8 +126,8 @@ parser! {
                 Either::Right(choice)
             }
         });
-        let parser = parser.or(bare_token('\'').with(term_fragment(context.clone()).map(Box::new).map(Term::Wrap)));
-        parser.or(bare_token('>').with(term(context.clone()).map(Box::new).map(Term::Put)))
+        let parser = parser.or(bare_token('\'').with(term_fragment(a_context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).map(Term::Wrap)));
+        parser.or(bare_token('>').with(term(a_context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).map(Term::Put)))
     }
 }
 
@@ -118,64 +137,75 @@ pub struct Context {}
 impl Context {}
 
 parser! {
-    fn term_fragment[Input](context: Context)(Input) -> Term
+    fn term_fragment['a, Input](context: Context, bump: &'a Bump)(Input) -> Term<'a>
     where
          [ Input: Stream<Token = char> ]
     {
-        let parser = look_ahead(block_keyword()).with(block(context.clone()).map(Term::Block));
-        let parser = parser.or(recurse(context.clone()));
+        let parser = look_ahead(block_keyword()).with(block(context.clone(), bump).map(Term::Block));
+        let parser = parser.or(recurse(context.clone(), bump));
         parser.or(bare_token('*').with(value(Term::Universe)))
     }
 }
 
-pub fn term<Input>(context: Context) -> impl Parser<Input, Output = Term>
+pub fn term<'a, Input>(context: Context, bump: &'a Bump) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
     spaces()
-        .with(many(attempt((
-            term_fragment(context.clone())
-                .map(Box::new)
-                .and(optional(attempt(string("~as")).with(ident()))),
-            spaces()
-                .with(
-                    attempt(choice!(bare_string("|->"), bare_string("->")))
-                        .map(|a| (None, a == "|->"))
-                        .or(bare_string("|-")
-                            .with(ident())
-                            .skip(bare_string("->"))
-                            .map(|a| (Some(a), true))),
+        .with(term_fragment(context.clone(), bump))
+        .then(move |fragment| {
+            let fragment = Rc::new(RefCell::new(Some(fragment)));
+            let context = context.clone();
+            spaces().with(parser(move |input| {
+                let mut iter = (
+                    optional(bare_string("~as").with(ident(bump)).skip(spaces())),
+                    (
+                        bare_string("->")
+                            .with(value((false, None)))
+                            .or(bare_string("|-").with(choice!(
+                                bare_token('>').with(value((true, None))),
+                                ident(bump).skip(bare_string("->")).map(|a| (true, Some(a)))
+                            )))
+                            .skip(spaces()),
+                        term_fragment(context.clone(), bump)
+                            .skip(spaces())
+                            .map(|a| BumpBox::new_in(a, bump)),
+                    ),
                 )
-                .skip(spaces()),
-        ))))
-        .and(term_fragment(context).map(Box::new))
-        .map(move |(data, return_type): (Vec<_>, _)| {
-            let mut argument_types = data.into_iter().rev();
+                    .iter(input);
 
-            if let Some(((argument_type, argument_binding), (self_binding, erased))) =
-                argument_types.next()
-            {
-                let mut term = Term::Function {
-                    argument_type,
-                    return_type,
-                    self_binding,
-                    erased,
-                    argument_binding,
-                };
-                while let Some(((argument_type, argument_binding), (self_binding, erased))) =
-                    argument_types.next()
+                let mut data = (&mut iter).collect::<Vec<_>>();
+                let term = if let Some((
+                    last_argument_binding,
+                    ((last_erased, last_self_binding), term),
+                )) = data.pop()
                 {
-                    term = Term::Function {
-                        argument_type,
-                        argument_binding,
-                        self_binding,
-                        erased,
-                        return_type: Box::new(term),
+                    let metas = once((last_argument_binding, last_self_binding, last_erased))
+                        .chain(data.iter().rev().cloned().map(
+                            |(argument_binding, ((erased, self_binding), _))| {
+                                (argument_binding, self_binding, erased)
+                            },
+                        ));
+                    let mut term = term.clone_inner();
+                    for ((argument_binding, self_binding, erased), ty) in
+                        metas.zip(data.iter().rev().map(|(_, (_, ty))| ty.clone()).chain(once(
+                            BumpBox::new_in(fragment.borrow_mut().take().unwrap(), bump),
+                        )))
+                    {
+                        term = Term::Function {
+                            self_binding,
+                            argument_binding,
+                            erased,
+                            argument_type: ty,
+                            return_type: BumpBox::new_in(term, bump),
+                        }
                     }
-                }
-                term
-            } else {
-                *return_type
-            }
+                    term
+                } else {
+                    fragment.borrow_mut().take().unwrap()
+                };
+
+                iter.into_result(term)
+            }))
         })
 }

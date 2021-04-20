@@ -1,53 +1,62 @@
 use combine::{
-    attempt, choice, many, many1, optional, parser,
-    parser::char::{letter, spaces},
-    token as bare_token, value, Parser, Stream,
+    choice, optional, parser, parser::char::spaces, token as bare_token, value, Parser, Stream,
 };
 
 pub mod term;
 pub use term::Term;
-mod util;
+pub(crate) mod util;
+
+pub use bumpalo::Bump;
+pub use util::{BumpBox, BumpString, BumpVec};
 
 use term::{term, Context};
 use util::{comma_separated, delimited, ident, string, token};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ident(pub String);
+use self::util::{bare_ident, bump_many};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Path(pub Vec<Ident>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ident<'a>(pub BumpString<'a>);
+
+impl<'a> Ident<'a> {
+    pub fn from_str(a: &str, bump: &'a Bump) -> Self {
+        Ident(BumpString::from_str(a, bump))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Path<'a>(pub BumpVec<'a, Ident<'a>>);
 
 #[derive(Debug, Clone)]
-pub struct Variant {
-    pub ident: Ident,
-    pub inhabitants: Vec<(Ident, Term, bool)>,
-    pub indices: Vec<Term>,
+pub struct Variant<'a> {
+    pub ident: Ident<'a>,
+    pub inhabitants: BumpVec<'a, (Ident<'a>, Term<'a>, bool)>,
+    pub indices: BumpVec<'a, Term<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Data {
-    pub variants: Vec<Variant>,
-    pub type_arguments: Vec<(Ident, Option<Term>, bool)>,
-    pub indices: Vec<(Ident, Term)>,
-    pub ident: Ident,
+pub struct Data<'a> {
+    pub variants: BumpVec<'a, Variant<'a>>,
+    pub type_arguments: BumpVec<'a, (Ident<'a>, Option<Term<'a>>, bool)>,
+    pub indices: BumpVec<'a, (Ident<'a>, Term<'a>)>,
+    pub ident: Ident<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub enum BlockItem {
-    Data(Data),
+pub enum BlockItem<'a> {
+    Data(Data<'a>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Declaration {
-    pub ident: Ident,
-    pub term: Term,
-    pub ty: Term,
+pub struct Declaration<'a> {
+    pub ident: Ident<'a>,
+    pub term: Term<'a>,
+    pub ty: Term<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Item {
-    Block(BlockItem),
-    Declaration(Declaration),
+pub enum Item<'a> {
+    Block(BlockItem<'a>),
+    Declaration(Declaration<'a>),
 }
 
 fn block_item_keyword<Input>() -> impl Parser<Input, Output = &'static str>
@@ -58,19 +67,27 @@ where
 }
 
 parser! {
-    fn variant[Input](context: Context)(Input) -> Variant
+    fn variant['a, Input](context: Context, bump: &'a Bump)(Input) -> Variant<'a>
     where
          [ Input: Stream<Token = char> ]
     {
+        let bump = *bump;
+        let context = &*context;
         (
-            ident(),
-            optional(delimited('[', ']', comma_separated((ident().skip(token(':')), term(context.clone()), value(true))))),
-            optional(delimited('(', ')', comma_separated((ident().skip(token(':')), term(context.clone()), value(false))))),
-            optional(attempt(token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(term(context.clone())))))).map(|data| data.unwrap_or(vec![]))
+            bare_ident(bump),
+            optional(delimited('[', ']', comma_separated({
+                let context = context.clone();
+                move || (ident(bump).skip(token(':')), term(context.clone(), bump), value(true))
+            }, bump))),
+            optional(delimited('(', ')', comma_separated({
+                let context = context.clone();
+                move || (ident(bump).skip(token(':')), term(context.clone(), bump), value(false))
+            }, bump))).skip(spaces()),
+            optional(bare_token('~').and(string("with")).skip(spaces()).with(delimited('{','}', comma_separated(move || term(context.clone(), bump), bump)))).map(move |data| data.unwrap_or(BumpVec::new_in(bump)))
         )
-            .map(|(ident, erased_inhabitants, inhabitants, indices)| {
-                let mut erased_inhabitants = erased_inhabitants.unwrap_or(vec![]);
-                erased_inhabitants.append(&mut inhabitants.unwrap_or(vec![]));
+            .map(move |(ident, erased_inhabitants, inhabitants, indices)| {
+                let mut erased_inhabitants = erased_inhabitants.unwrap_or(BumpVec::new_in(bump));
+                erased_inhabitants.append(&mut inhabitants.unwrap_or(BumpVec::new_in(bump)));
                 Variant {
                     ident,
                     inhabitants: erased_inhabitants,
@@ -80,77 +97,89 @@ parser! {
     }
 }
 
-fn data<Input>(
-    ident: Ident,
-    type_arguments: Vec<(Ident, Option<Term>, bool)>,
-    indices: Vec<(Ident, Term)>,
+fn data<'a, Input>(
+    ident: Ident<'a>,
+    type_arguments: BumpVec<'a, (Ident<'a>, Option<Term<'a>>, bool)>,
+    indices: BumpVec<'a, (Ident<'a>, Term<'a>)>,
     context: Context,
-) -> impl Parser<Input, Output = Data>
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Data<'a>>
 where
     Input: Stream<Token = char>,
 {
-    comma_separated(variant(context.clone())).map(move |variants| Data {
-        variants,
-        ident: ident.clone(),
-        type_arguments: type_arguments.clone(),
-        indices: indices.clone(),
-    })
+    spaces()
+        .with(comma_separated(
+            move || variant(context.clone(), bump),
+            bump,
+        ))
+        .map(move |variants| Data {
+            variants,
+            ident: ident.clone(),
+            type_arguments: type_arguments.clone(),
+            indices: indices.clone(),
+        })
 }
 
-pub fn type_params<Input>() -> impl Parser<Input, Output = Vec<(Ident, Option<Term>, bool)>>
+pub fn type_params<'a, Input>(
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = BumpVec<'a, (Ident, Option<Term>, bool)>>
 where
     Input: Stream<Token = char>,
 {
-    many(
-        (
-            many1(letter().or(bare_token('_')))
+    bump_many(
+        move || {
+            (bare_ident(bump).skip(spaces()), value(None), value(true))
+                .or(delimited(
+                    '[',
+                    ']',
+                    ident(bump)
+                        .skip(token(':'))
+                        .and(term(Default::default(), bump)),
+                )
                 .skip(spaces())
-                .map(Ident),
-            value(None),
-            value(true),
-        )
-            .or(delimited(
-                '[',
-                ']',
-                ident().skip(token(':')).and(term(Default::default())),
-            )
-            .skip(spaces())
-            .map(|(ident, term)| (ident, Some(term), true)))
-            .or(delimited(
-                '(',
-                ')',
-                (
-                    ident(),
-                    optional(attempt(token(':').with(term(Default::default())))),
-                ),
-            )
-            .skip(spaces())
-            .map(|(ident, term)| (ident, term, false))),
+                .map(|(ident, term)| (ident, Some(term), true)))
+                .or(delimited(
+                    '(',
+                    ')',
+                    (
+                        ident(bump),
+                        optional(token(':').with(term(Default::default(), bump))),
+                    ),
+                )
+                .skip(spaces())
+                .map(|(ident, term)| (ident, term, false)))
+        },
+        bump,
     )
 }
 
 parser! {
-    fn block_item[Input](context: Context)(Input) -> BlockItem
+    fn block_item['a, Input](context: Context, bump: &'a Bump)(Input) -> BlockItem<'a>
     where
          [ Input: Stream<Token = char> ]
     {
-        attempt(block_item_keyword()).then(|kw| {
+        let bump = *bump;
+        let context = context.clone();
+        block_item_keyword().then(move |kw| {
             let context = context.clone();
             match kw {
                 "data" => (
-                        ident().skip(spaces()),
-                        type_params(),
+                        ident(bump).skip(spaces()),
+                        type_params(bump),
                         optional(
-                            attempt(token('~')
+                            token('~')
                                 .and(string("with"))
                                 .skip(spaces())
-                                .with(delimited('{','}', comma_separated((ident().skip(token(':')), term(context.clone())))).skip(spaces())))
+                                .with(delimited('{','}', comma_separated({
+                                    let context = context.clone();
+                                    move || (ident(bump).skip(token(':')), term(context.clone(), bump))
+                                }, bump)).skip(spaces()))
                         )
                     ).then(move |(ident, type_arguments, indices)| {
                     delimited(
                         '{',
                         '}',
-                        data(ident, type_arguments, indices.unwrap_or(vec![]), context.clone()).map(BlockItem::Data)
+                        data(ident, type_arguments, indices.unwrap_or(BumpVec::new_in(bump)), context.clone(), bump).map(BlockItem::Data)
                     )
                 }),
                 _ => panic!()
@@ -159,30 +188,33 @@ parser! {
     }
 }
 
-pub fn declaration<Input>(context: Context) -> impl Parser<Input, Output = Declaration>
+pub fn declaration<'a, Input>(
+    context: Context,
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Declaration<'a>>
 where
     Input: Stream<Token = char>,
 {
     (
-        ident().skip(token(':')),
-        term(context.clone()),
-        term(context),
+        ident(bump).skip(token(':')),
+        term(context.clone(), bump),
+        term(context, bump),
     )
         .map(|(ident, ty, term)| Declaration { ident, ty, term })
 }
 
-pub fn item<Input>() -> impl Parser<Input, Output = Item>
+pub fn item<'a, Input>(bump: &'a Bump) -> impl Parser<Input, Output = Item<'a>>
 where
     Input: Stream<Token = char>,
 {
-    let parser = block_item(Default::default()).map(Item::Block);
-    let parser = parser.or(declaration(Default::default()).map(Item::Declaration));
+    let parser = block_item(Default::default(), bump).map(Item::Block);
+    let parser = parser.or(declaration(Default::default(), bump).map(Item::Declaration));
     parser
 }
 
-pub fn items<Input>() -> impl Parser<Input, Output = Vec<Item>>
+pub fn items<'a, Input>(bump: &'a Bump) -> impl Parser<Input, Output = BumpVec<'a, Item>>
 where
     Input: Stream<Token = char>,
 {
-    many(item())
+    bump_many(move || item(bump), bump)
 }

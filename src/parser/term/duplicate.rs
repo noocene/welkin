@@ -1,16 +1,23 @@
+use bumpalo::Bump;
 use combine::{parser::char::spaces, Parser, Stream};
 
-use crate::parser::Ident;
+use crate::parser::{util::BumpBox, Ident};
 
 use super::{term, Context, Term};
 
-pub fn duplicate<Input>(binding: Ident, context: Context) -> impl Parser<Input, Output = Term>
+pub fn duplicate<'a, Input>(
+    binding: Ident<'a>,
+    context: Context,
+    bump: &'a Bump,
+) -> impl Parser<Input, Output = Term<'a>>
 where
     Input: Stream<Token = char>,
 {
     (
-        term(context.clone()).map(Box::new).skip(spaces()),
-        term(context.clone()).map(Box::new),
+        term(context.clone(), bump)
+            .map(move |a| BumpBox::new_in(a, bump))
+            .skip(spaces()),
+        term(context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)),
     )
         .map(move |(expression, body)| Term::Duplicate {
             expression,
