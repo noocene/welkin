@@ -4,19 +4,25 @@ use std::{
 
 use combine::{stream::position, EasyParser};
 use welkin::{
-    compiler::{item::Compile as _, term::Compile as _, AbsolutePath, LocalResolver, Resolve},
+    compiler::{
+        item::Compile as _, term::Compile as _, AbsolutePath, BumpPath, LocalResolver, Resolve,
+    },
     parser::{items, BlockItem, BumpString, BumpVec, Ident, Item, Path},
+    Bumpalo,
 };
 
 use walkdir::WalkDir;
-use welkin_core::term::{Term, TypedDefinitions};
+use welkin_core::term::{
+    alloc::{Allocator, IntoInner, Reallocate},
+    Primitives, Term, TypedDefinitions,
+};
 
-fn format_size(term: Term<AbsolutePath>) -> String {
+fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
     if let Term::Lambda { body, .. } = term {
-        if let Term::Lambda { body, .. } = *body {
+        if let Term::Lambda { body, .. } = body.into_inner() {
             let mut term = body;
             let mut ctr = 0;
-            while let Term::Apply { argument, .. } = *term {
+            while let Term::Apply { argument, .. } = term.into_inner() {
                 ctr += 1;
                 term = argument;
             }
@@ -120,32 +126,56 @@ fn main() {
         }
     }
 
+    let defs_bump = bumpalo::Bump::new();
+    let defs_bm = Bumpalo(&defs_bump);
+
     let defs: HashMap<_, _> = declarations
         .clone()
         .into_iter()
-        .map(|(a, b, c): (AbsolutePath, Term<_, _>, Term<_, _>)| (a, (b, c)))
+        .map(|(a, b, c): (AbsolutePath, Term<_, _>, Term<_, _>)| {
+            (
+                BumpPath::new_in(a, &defs_bump),
+                (
+                    defs_bm.reallocate(
+                        b.map_reference(|a| Term::Reference(BumpPath::new_in(a, &defs_bump))),
+                    ),
+                    defs_bm.reallocate(
+                        c.map_reference(|a| Term::Reference(BumpPath::new_in(a, &defs_bump))),
+                    ),
+                ),
+            )
+        })
         .collect();
+
     let mut ok = 0;
     let mut err = 0;
     let mut errs = String::new();
 
     let now = SystemTime::now();
+
     for (path, (ty, term)) in &defs {
         let mut er = 0;
-        if let Err(e) = term.is_stratified(&defs) {
+
+        let bp = bumpalo::Bump::new();
+        let bm = Bumpalo(&bp);
+
+        let ty = bm.reallocating_copy(ty);
+        let term = bm.reallocating_copy(term);
+
+        if let Err(e) = term.is_stratified() {
             errs.push_str(&format!("{:?} IS NOT STRATIFIED\n\t{:?}\n", path, e));
             er = 1;
         }
-        if ty.is_stratified(&defs).is_err() {
+        if ty.is_stratified().is_err() {
             errs.push_str(&format!("{:?} (TYPE) IS NOT STRATIFIED\n", path));
             er = 1;
         }
 
-        if let Err(e) = term.check(&ty, &defs) {
+        if let Err(e) = term.check_in(&ty, &defs, &bm) {
             errs.push_str(&format!("\n{:?} ERR\n{:?}\n", path, e));
             er = 1;
         } else {
-            if let Err(e) = ty.check(&Term::Universe, &defs) {
+            if let Err(e) = ty.check_in(&Term::Universe, &defs, &bm) {
                 errs.push_str(&format!(
                     "\n{:?} ERR\n{:?}\nwhen checking {:?} in universe\n",
                     path, e, ty
@@ -170,16 +200,28 @@ fn main() {
 
     if err == 0 {
         println!("\nmain normalizes to:\n{}", {
-            let (ty, term) = defs
-                .get_typed(&AbsolutePath(vec!["main".into()]))
-                .unwrap()
-                .clone();
-            let mut main = term.stratified(&defs).unwrap();
+            let data = defs
+                .get_typed(&BumpPath::new_in(
+                    AbsolutePath(vec!["main".into()]),
+                    &defs_bump,
+                ))
+                .unwrap();
+            let (ty, term) = data.as_ref();
+            let ty = defs_bm.copy(ty);
+            let term = defs_bm.copy(term);
+            let mut main = term.stratified_in(&defs, &defs_bm).unwrap();
             main.normalize().unwrap();
             let main = main.into_inner();
 
             if ty
-                .equivalent(&Term::Reference(AbsolutePath(vec!["Size".into()])), &defs)
+                .equivalent_in(
+                    &Term::Reference(BumpPath::new_in(
+                        AbsolutePath(vec!["Size".into()]),
+                        &defs_bump,
+                    )),
+                    &defs,
+                    &defs_bm,
+                )
                 .unwrap()
             {
                 format_size(main)

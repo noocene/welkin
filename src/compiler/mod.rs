@@ -1,6 +1,12 @@
-use std::fmt::{self, Debug};
+use std::{
+    fmt::{self, Debug},
+    marker::PhantomData,
+};
 
-use welkin_core::term::{Index, Show};
+use bumpalo::Bump;
+use welkin_core::term::{
+    alloc::Allocator, DefinitionResult, Index, Primitives, Show, Term as CoreTerm, TypedDefinitions,
+};
 
 use crate::parser::{Ident, Path};
 
@@ -9,6 +15,78 @@ pub mod term;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct AbsolutePath(pub Vec<String>);
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct BumpPath<'a>(pub bumpalo::collections::Vec<'a, bumpalo::collections::String<'a>>);
+
+pub struct DefinitionConverter<
+    'a,
+    T,
+    U: Primitives<T> + Primitives<P>,
+    A: Allocator<T, U> + Allocator<P, U>,
+    D: TypedDefinitions<T, U, A>,
+    P,
+    F: Fn(P) -> T,
+    G: Fn(T) -> P,
+> {
+    definitions: &'a D,
+    marker: PhantomData<(P, U)>,
+    alloc: &'a A,
+    forward: F,
+    backward: G,
+}
+
+impl<
+        'a,
+        T,
+        U: Primitives<T> + Primitives<P>,
+        A: Allocator<T, U> + Allocator<P, U>,
+        D: TypedDefinitions<T, U, A>,
+        P,
+        F: Fn(P) -> T,
+        G: Fn(T) -> P,
+    > DefinitionConverter<'a, T, U, A, D, P, F, G>
+{
+    pub fn new(definitions: &'a D, forward: F, backward: G, alloc: &'a A) -> Self {
+        DefinitionConverter {
+            definitions,
+            marker: PhantomData,
+            alloc,
+            forward,
+            backward,
+        }
+    }
+}
+
+impl<
+        'a,
+        T: Clone,
+        U: Primitives<T> + Primitives<P> + Clone,
+        A: Allocator<T, U> + Allocator<P, U>,
+        D: TypedDefinitions<T, U, A>,
+        P: Clone,
+        F: Fn(P) -> T,
+        G: Fn(T) -> P,
+    > TypedDefinitions<P, U, A> for DefinitionConverter<'a, T, U, A, D, P, F, G>
+{
+    fn get_typed(
+        &self,
+        name: &P,
+    ) -> Option<DefinitionResult<(CoreTerm<P, U, A>, CoreTerm<P, U, A>)>> {
+        Some({
+            let data = self.definitions.get_typed(&(self.forward)(name.clone()))?;
+            let (ty, term) = data.as_ref();
+            DefinitionResult::Owned((
+                self.alloc
+                    .copy(ty)
+                    .map_reference_in(|a| CoreTerm::Reference((self.backward)(a)), self.alloc),
+                self.alloc
+                    .copy(term)
+                    .map_reference_in(|a| CoreTerm::Reference((self.backward)(a)), self.alloc),
+            ))
+        })
+    }
+}
 
 impl Show for AbsolutePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,6 +100,50 @@ impl Show for AbsolutePath {
 impl Debug for AbsolutePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         Show::fmt(self, f)
+    }
+}
+
+impl<'a> Show for BumpPath<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for item in &self.0 {
+            write!(f, "::{}", item)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'a> Debug for BumpPath<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Show::fmt(self, f)
+    }
+}
+
+impl<'a> BumpPath<'a> {
+    pub fn new_in(path: AbsolutePath, alloc: &'a Bump) -> Self {
+        BumpPath(bumpalo::collections::Vec::from_iter_in(
+            path.0
+                .into_iter()
+                .map(|a| bumpalo::collections::String::from_str_in(&a, alloc)),
+            alloc,
+        ))
+    }
+
+    pub fn reallocate_in<'b>(self, alloc: &'b Bump) -> BumpPath<'b> {
+        BumpPath(bumpalo::collections::Vec::from_iter_in(
+            self.0
+                .into_iter()
+                .map(|a| bumpalo::collections::String::from_str_in(&a, alloc)),
+            alloc,
+        ))
+    }
+
+    pub fn reallocating_copy_in<'b>(&self, alloc: &'b Bump) -> BumpPath<'b> {
+        BumpPath(bumpalo::collections::Vec::from_iter_in(
+            self.0
+                .iter()
+                .map(|a| bumpalo::collections::String::from_str_in(&a, alloc)),
+            alloc,
+        ))
     }
 }
 
