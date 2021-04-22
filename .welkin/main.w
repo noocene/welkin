@@ -1,8 +1,4 @@
 main:
-'Bool
+'Char
 
-Size::fold[Bool](
-    (~literal Size 10),
-    > Bool::true,
-    > Bool::not
-)
+Char::from_size(~literal Size 65)

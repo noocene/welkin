@@ -49,6 +49,7 @@ fn format_bool<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
     }
 }
 
+#[allow(dead_code)]
 fn format_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> Vec<bool> {
     let mut data = vec![];
     let mut term = term;
@@ -274,7 +275,7 @@ fn main() {
             } else if is_ty(&ty, "Bool") {
                 format!("BOOL = {:?}", format_bool(main))
             } else {
-                format!("WORD = {:?}", format_word(main))
+                format!("{:?}", main)
             }
         });
     } else {

@@ -1,6 +1,6 @@
 induct:
-Size        ~as n     ->
 (Size -> *) ~as prop |->
+Size        ~as n     ->
 '(
     Size ~as n ->
     prop(n)    ->
@@ -9,8 +9,8 @@ Size        ~as n     ->
 'prop(Size::zero)     ->
 'prop(n)
 
-n |>
 prop ||>
+n |>
 f |>
 base |>
 f < f
