@@ -14,7 +14,7 @@ use welkin::{
 use walkdir::WalkDir;
 use welkin_core::term::{
     alloc::{Allocator, IntoInner, Reallocate},
-    Primitives, Term, TypedDefinitions,
+    Index, Primitives, Term, TypedDefinitions,
 };
 
 fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
@@ -31,6 +31,46 @@ fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
         panic!()
     }
     panic!()
+}
+
+fn format_bool<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> bool {
+    if let Term::Lambda { body, .. } = term {
+        if let Term::Lambda { body, .. } = body.into_inner() {
+            if let Term::Variable(var) = body.into_inner() {
+                var.0 == 1
+            } else {
+                panic!()
+            }
+        } else {
+            panic!()
+        }
+    } else {
+        panic!()
+    }
+}
+
+fn format_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> Vec<bool> {
+    let mut data = vec![];
+    let mut term = term;
+    loop {
+        while let Term::Lambda { body, .. } = term {
+            term = body.into_inner();
+        }
+        match term {
+            Term::Variable(_) => break data,
+            Term::Apply {
+                argument, function, ..
+            } => {
+                match function.into_inner() {
+                    Term::Variable(Index(0)) => data.push(true),
+                    Term::Variable(Index(1)) => data.push(false),
+                    _ => panic!("invalid word"),
+                };
+                term = argument.into_inner();
+            }
+            _ => panic!("invalid word"),
+        }
+    }
 }
 
 fn main() {
@@ -207,26 +247,34 @@ fn main() {
                 ))
                 .unwrap();
             let (ty, term) = data.as_ref();
-            let ty = defs_bm.copy(ty);
+            let mut ty = defs_bm.copy(ty);
             let term = defs_bm.copy(term);
             let mut main = term.stratified_in(&defs, &defs_bm).unwrap();
             main.normalize().unwrap();
             let main = main.into_inner();
 
-            if ty
-                .equivalent_in(
+            while let Term::Wrap(t) = ty {
+                ty = t.into_inner();
+            }
+
+            let is_ty = |ty: &Term<_, _, _>, name: &str| {
+                ty.equivalent_in(
                     &Term::Reference(BumpPath::new_in(
-                        AbsolutePath(vec!["Size".into()]),
+                        AbsolutePath(vec![name.into()]),
                         &defs_bump,
                     )),
                     &defs,
                     &defs_bm,
                 )
                 .unwrap()
-            {
+            };
+
+            if is_ty(&ty, "Size") {
                 format_size(main)
+            } else if is_ty(&ty, "Bool") {
+                format!("BOOL = {:?}", format_bool(main))
             } else {
-                format!("{:?}", main)
+                format!("WORD = {:?}", format_word(main))
             }
         });
     } else {

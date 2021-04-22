@@ -24,7 +24,7 @@ mod duplicate;
 use duplicate::duplicate;
 mod block;
 use block::{block, block_keyword};
-pub(crate) use block::{Arm, Block, Match, Section};
+pub(crate) use block::{Arm, Block, Literal, Match, Section};
 
 #[derive(Debug, Clone)]
 pub enum Term<'a> {
@@ -91,24 +91,20 @@ parser! {
         let bump = *bump;
         let group = group_or_ident(a_context.clone(), bump);
         let context = a_context.clone();
-        let parser = group.skip(spaces()).then(move |group| {
+        let parser = group.then(move |group| {
             let path = if let Term::Reference(path) = &group {
                 Some(path.clone())
             } else {
                 None
             };
             let group = Rc::new(RefCell::new(Some(group)));
-            let choice = choice!(
-                next_token_is('[').with(application(true, group.clone(), context.clone(), bump)),
-                next_token_is('(').with(application(false, group.clone(), context.clone(), bump)),
-                value(()).then({
-                    let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
-                })
-            );
+            let choice = next_token_is('[')
+                .with(application(true, group.clone(), context.clone(), bump))
+                .or(next_token_is('(').with(application(false, group.clone(), context.clone(), bump)));
 
             if let Some(path) = path {
-                if path.0.len() == 1 {
-                    Either::Left(
+                Either::Left(if path.0.len() == 1 {
+                    Either::Left(choice.or(spaces().with(
                         bare_token('|').with(choice!(bare_token('>').with(value(false)), bare_string("|>").with(value(true))).then({
                             let context = context.clone();
                             let path = path.clone();
@@ -117,13 +113,19 @@ parser! {
                             }
                         }))
                             .or(bare_token('<').with(duplicate(path.0.first().unwrap().clone(), context.clone(), bump)))
-                            .or(choice)
-                        )
+                            .or(value(()).then({
+                                let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
+                            }))
+                    )))
                 } else {
-                    Either::Right(choice)
-                }
+                    Either::Right(choice.or(value(()).then({
+                        let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
+                    })))
+                })
             } else {
-                Either::Right(choice)
+                Either::Right(choice.or(value(()).then({
+                    let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
+                })))
             }
         });
         let parser = parser.or(bare_token('\'').with(term_fragment(a_context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).map(Term::Wrap)));

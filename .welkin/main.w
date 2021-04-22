@@ -1,4 +1,8 @@
 main:
-Size
+'Bool
 
-Size::succ(Size::succ(Size::zero))
+Size::fold[Bool](
+    (~literal Size 10),
+    > Bool::true,
+    > Bool::not
+)

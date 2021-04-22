@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use bumpalo::Bump;
-use combine::{any, look_ahead, parser::combinator::Either, value, Parser, Stream};
+use combine::{any, look_ahead, optional, parser::combinator::Either, value, Parser, Stream};
 
 use crate::parser::{
     util::{comma_separated1, delimited, BumpBox},
@@ -58,10 +58,10 @@ where
         });
         Either::Left(parser.then(move |term| {
             let term = Rc::new(RefCell::new(Some(term)));
-            look_ahead(any()).then({
+            look_ahead(optional(any())).then({
                 let context = context.clone();
                 move |token| {
-                    if token == '(' {
+                    if token == Some('(') {
                         Either::Left(concrete_application(context.clone(), bump).map({
                             let term = term.clone();
                             move |arguments| Term::Application {

@@ -1,9 +1,9 @@
 use welkin_core::term::Term as CoreTerm;
 
 use crate::parser::{
-    term::{Block, Term},
+    term::{Block, Literal, Term},
     util::BumpBox,
-    Ident, Path,
+    BumpString, BumpVec, Ident, Path,
 };
 
 mod match_arms;
@@ -124,6 +124,34 @@ impl<'a> Compile<AbsolutePath> for Block<'a> {
         match self {
             Block::AbsoluteCore(core) => core,
             Block::Match(m) => m.compile(resolver),
+            Block::Literal(l, bump) => match l {
+                Literal::Size(size) => {
+                    let mut term = Term::Reference(Path(BumpVec::binary_in(
+                        Ident(BumpString::from_str("Size", bump)),
+                        Ident(BumpString::from_str("zero", bump)),
+                        bump,
+                    )));
+
+                    if size > 0 {
+                        let succ = Term::Reference(Path(BumpVec::binary_in(
+                            Ident(BumpString::from_str("Size", bump)),
+                            Ident(BumpString::from_str("succ", bump)),
+                            bump,
+                        )));
+
+                        for _ in 0..size {
+                            term = Term::Application {
+                                function: BumpBox::new_in(succ.clone(), bump),
+                                arguments: BumpVec::unary_in(term, bump),
+                                erased: false,
+                            };
+                        }
+                    }
+
+                    term.compile(resolver)
+                }
+                Literal::Char(_) => todo!(),
+            },
         }
     }
 }

@@ -1,5 +1,5 @@
 ~data Index {
-    new(value: Nat)
+    new(value: Size)
 }
 
 ~data Term A {
