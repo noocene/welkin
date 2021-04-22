@@ -2,15 +2,15 @@ map:
 *    ~as A       |->
 *    ~as B       |->
 Size ~as length  |->
-Vector[A, length] ->
 (A -> B)          ->
+Vector[A, length] ->
 Vector[B, length]
 
 A ||>
 B ||>
 length ||>
-vector |>
 call |>
+vector |>
 ~match vector ~with size {
     nil = Vector::nil[B]
     cons[size](
