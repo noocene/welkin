@@ -1,4 +1,4 @@
 main:
-'Char
+Size
 
-Char::from_size(~literal Size 65)
+(~literal Size 21)
