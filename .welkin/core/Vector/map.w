@@ -1,3 +1,5 @@
+// TODO this is actually wrong and shouldn't compile...?
+
 map:
 *    ~as A       |->
 *    ~as B       |->
