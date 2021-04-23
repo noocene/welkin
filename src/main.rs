@@ -79,7 +79,7 @@ fn main() {
     let bump = bumpalo::Bump::new();
 
     let mut parsing_time = 0;
-    let mut tc_time = 0;
+    let mut tc_times = vec![];
     let mut codegen_time = 0;
 
     for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
@@ -192,9 +192,11 @@ fn main() {
     let mut err = 0;
     let mut errs = String::new();
 
-    let now = SystemTime::now();
+    let mut tc_time = 0;
 
     for (path, (ty, term)) in &defs {
+        let now = SystemTime::now();
+
         let mut er = 0;
 
         let bp = bumpalo::Bump::new();
@@ -227,8 +229,13 @@ fn main() {
             }
         }
         err += er;
+        let elapsed = now.elapsed().unwrap().as_millis();
+        tc_times.push((path, elapsed));
+        tc_times.sort_by_key(|(_, a)| *a);
+        tc_times.reverse();
+        tc_times.truncate(3);
+        tc_time += elapsed;
     }
-    tc_time += now.elapsed().unwrap().as_millis();
 
     println!("{}", errs);
     println!("CHECKED {}", ok + err);
@@ -238,6 +245,26 @@ fn main() {
         "PARSING {}ms | CODEGEN {}ms | TC {}ms",
         parsing_time, codegen_time, tc_time
     );
+
+    if tc_time > 1000 {
+        println!("\nTOP 3 TC:");
+        for (name, time) in tc_times {
+            println!(
+                "{:width$} TOOK {}ms",
+                {
+                    let mut data = format!("{:?}", name);
+                    let l = data.len();
+                    data.truncate(22);
+                    if l > 22 {
+                        data.push_str("...");
+                    }
+                    data
+                },
+                time,
+                width = 25
+            );
+        }
+    }
 
     if err == 0 {
         println!("\nmain normalizes to:\n{}", {
