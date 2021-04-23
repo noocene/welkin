@@ -1,3 +1,3 @@
-~data LeftIdentity A [a: A] [F: A -> A -> A] {
-    new(proof: A ~as b -> Equal[A, F(a, b), b])
+~data LeftIdentity A B [a: A] [F: A -> B -> B] {
+    new(proof: B ~as b -> Equal[A, F(a, b), b])
 }
