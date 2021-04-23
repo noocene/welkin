@@ -1,3 +1,6 @@
 ~data Semigroup A {
-    new(concat: A -> A -> A)
+    new(
+        operation: Magma[A],
+        associative: Associative[A, Magma::operation[A](operation)]
+    )
 }

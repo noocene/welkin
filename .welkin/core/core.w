@@ -19,7 +19,7 @@ _ ||> _ ||> _ ||>
 a |> b |>
 x |> a(b(x))
 
-id:
+identity:
 * ~as A |->
 A        ->
 A

@@ -1,11 +1,11 @@
-concat:
+magma:
 * ~as A     |->
 Semigroup[A] ->
-A -> A -> A
+Magma[A]
 
 A ||>
 semigroup |>
 ~match semigroup {
-    new(concat) = concat
-    : _ |> A -> A -> A
+    new(magma, _) = magma
+    : _ |> Magma[A]
 }
