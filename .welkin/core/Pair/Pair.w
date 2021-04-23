@@ -1,3 +1,3 @@
 ~data Pair A B {
-    new(first: A, second: B)
+    new(left: A, right: B)
 }
