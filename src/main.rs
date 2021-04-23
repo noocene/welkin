@@ -205,6 +205,16 @@ fn main() {
         let ty = bm.reallocating_copy(ty);
         let term = bm.reallocating_copy(term);
 
+        if term.is_recursive_in(&defs, &bm, &defs_bm) {
+            errs.push_str(&format!("{:?} IS DEFINED RECURSIVELY\n", path));
+            er = 1;
+        }
+
+        if ty.is_recursive_in(&defs, &bm, &defs_bm) {
+            errs.push_str(&format!("{:?} (TYPE) IS DEFINED RECURSIVELY\n", path));
+            er = 1;
+        }
+
         if let Err(e) = term.is_stratified() {
             errs.push_str(&format!("{:?} IS NOT STRATIFIED\n\t{:?}\n", path, e));
             er = 1;
@@ -268,12 +278,8 @@ fn main() {
 
     if err == 0 {
         println!("\nmain normalizes to:\n{}", {
-            let data = defs
-                .get_typed(&BumpPath::new_in(
-                    AbsolutePath(vec!["main".into()]),
-                    &defs_bump,
-                ))
-                .unwrap();
+            let name = BumpPath::new_in(AbsolutePath(vec!["main".into()]), &defs_bump);
+            let data = defs.get_typed(&name).unwrap();
             let (ty, term) = data.as_ref();
             let mut ty = defs_bm.copy(ty);
             let term = defs_bm.copy(term);
