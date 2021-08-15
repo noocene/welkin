@@ -7,6 +7,6 @@ Size::induct[
     n |> Word[n]
 ](
     length,
-    > n |> word |> Word::low[n](word),
-    > Word::empty
+    > Word::empty,
+    > n ||> word |> Word::low[n](word)
 )

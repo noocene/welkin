@@ -10,5 +10,5 @@ stream |>
 Vector::unfold[A, Stream[A]](
     length,
     stream,
-    > _ |> stream |> Stream::open[A](stream)
+    > _ ||> stream |> Stream::open[A](stream)
 )

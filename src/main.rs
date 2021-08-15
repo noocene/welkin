@@ -284,6 +284,9 @@ fn main() {
             let mut ty = defs_bm.copy(ty);
             let term = defs_bm.copy(term);
             let mut main = term.stratified_in(&defs, &defs_bm).unwrap();
+            // let mut net = main.clone().into_net::<Net<u32>>().unwrap();
+            // net.reduce_all();
+            // let net_norm: Term<String> = net.read_term(welkin_core::net::Index(0));
             main.normalize().unwrap();
             let main = main.into_inner();
 
