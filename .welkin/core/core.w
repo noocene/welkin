@@ -26,3 +26,19 @@ A
 
 _ ||>
 a |> a
+
+unerase:
+* ~as A |->
+* ~as B |->
+(
+    A |-> B
+)        ->
+(
+    A -> B
+)
+
+_ ||> _ ||>
+call |>
+
+arg |>
+call[arg]

@@ -1,7 +1,7 @@
 use std::{cell::RefCell, iter::once, rc::Rc};
 
 use combine::{
-    choice, look_ahead, optional, parser,
+    attempt, choice, look_ahead, not_followed_by, optional, parser,
     parser::{
         char::{spaces, string as bare_string},
         combinator::Either,
@@ -102,10 +102,10 @@ parser! {
                 .with(application(true, group.clone(), context.clone(), bump))
                 .or(next_token_is('(').with(application(false, group.clone(), context.clone(), bump)));
 
-            if let Some(path) = path {
-                Either::Left(if path.0.len() == 1 {
-                    Either::Left(choice.or(spaces().with(
-                        bare_token('|').with(choice!(bare_token('>').with(value(false)), bare_string("|>").with(value(true))).then({
+            match path {
+                Some(path) if path.0.len() == 1 => {
+                    Either::Left(choice.or(
+                        spaces().with(attempt(bare_token('|').skip(not_followed_by(bare_token('-')))).with(choice!(bare_token('>').with(value(false)), bare_string("|>").with(value(true))).then({
                             let context = context.clone();
                             let path = path.clone();
                             move |erased| {
@@ -117,17 +117,14 @@ parser! {
                                 let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
                             }))
                     )))
-                } else {
+                }
+                _ => {
                     Either::Right(choice.or(value(()).then({
                         let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
                     })))
-                })
-            } else {
-                Either::Right(choice.or(value(()).then({
-                    let group = group.clone(); move |_| value(group.borrow_mut().take().unwrap())
-                })))
+                }
             }
-        });
+        }).skip(spaces());
         let parser = parser.or(bare_token('\'').with(term_fragment(a_context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).map(Term::Wrap)));
         parser.or(bare_token('>').with(term(a_context.clone(), bump).map(move |a| BumpBox::new_in(a, bump)).map(Term::Put)))
     }

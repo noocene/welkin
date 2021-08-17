@@ -1,4 +1,4 @@
 functor:
-Functor[Maybe]
+Functor[A |> Maybe[A]]
 
-Functor::new[Maybe](Maybe::map)
+Functor::new[A |> Maybe[A]](Maybe::map)
