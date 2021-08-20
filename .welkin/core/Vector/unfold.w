@@ -20,7 +20,7 @@ Size::induct[
     n |> Pair[Vector[B, n], A]
 ](
     length,
-    > Pair::new[Vector[B, Size::zero], A](Vector::nil[A], initial),
+    > Pair::new[Vector[B, Size::zero], A](Vector::nil[B], initial),
     > n ||> pair |>
     (~match pair {
         new(vector, state) = ~match call[n](state) {
