@@ -125,6 +125,46 @@ impl<'a> Compile<AbsolutePath> for Block<'a> {
             Block::AbsoluteCore(core) => core,
             Block::Match(m) => m.compile(resolver),
             Block::Literal(l, bump) => match l {
+                Literal::Word(word) => {
+                    let mut term = Term::Reference(Path(BumpVec::binary_in(
+                        Ident(BumpString::from_str("Word", bump)),
+                        Ident(BumpString::from_str("empty", bump)),
+                        bump,
+                    )));
+
+                    let high = Term::Reference(Path(BumpVec::binary_in(
+                        Ident(BumpString::from_str("Word", bump)),
+                        Ident(BumpString::from_str("high", bump)),
+                        bump,
+                    )));
+
+                    let low = Term::Reference(Path(BumpVec::binary_in(
+                        Ident(BumpString::from_str("Word", bump)),
+                        Ident(BumpString::from_str("low", bump)),
+                        bump,
+                    )));
+
+                    for (idx, bit) in word.into_iter().enumerate() {
+                        let call = if bit { &high } else { &low };
+
+                        let call = Term::Application {
+                            function: BumpBox::new_in(call.clone(), bump),
+                            arguments: BumpVec::unary_in(
+                                Term::Block(Block::Literal(Literal::Size(idx), bump)),
+                                bump,
+                            ),
+                            erased: true,
+                        };
+
+                        term = Term::Application {
+                            function: BumpBox::new_in(call, bump),
+                            arguments: BumpVec::unary_in(term, bump),
+                            erased: false,
+                        }
+                    }
+
+                    term.compile(resolver)
+                }
                 Literal::Size(size) => {
                     let mut term = Term::Reference(Path(BumpVec::binary_in(
                         Ident(BumpString::from_str("Size", bump)),
@@ -150,7 +190,35 @@ impl<'a> Compile<AbsolutePath> for Block<'a> {
 
                     term.compile(resolver)
                 }
-                Literal::Char(_) => todo!(),
+                Literal::Char(character) => {
+                    let character = (character as u32).to_be_bytes();
+                    let mut bits = vec![];
+                    for byte in character {
+                        for bit in 0..8u8 {
+                            if ((1 << bit) & byte) != 0 {
+                                bits.push(true);
+                            } else {
+                                bits.push(false);
+                            }
+                        }
+                    }
+                    Term::Application {
+                        function: BumpBox::new_in(
+                            Term::Reference(Path(BumpVec::binary_in(
+                                Ident(BumpString::from_str("Char", bump)),
+                                Ident(BumpString::from_str("new", bump)),
+                                bump,
+                            ))),
+                            bump,
+                        ),
+                        arguments: BumpVec::unary_in(
+                            Term::Block(Block::Literal(Literal::Word(bits), bump)),
+                            bump,
+                        ),
+                        erased: false,
+                    }
+                    .compile(resolver)
+                }
             },
         }
     }

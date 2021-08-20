@@ -1,7 +1,8 @@
+pub use combine::token as bare_token;
 use combine::{
     between, optional, parser,
     parser::char::{letter, spaces, string as bare_string},
-    token as bare_token, value, Parser, Stream,
+    value, Parser, Stream,
 };
 use std::mem::replace;
 

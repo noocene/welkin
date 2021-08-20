@@ -1,4 +1,4 @@
 main:
-'Word[~literal Size 4]
+Word[~literal Size 5]
 
-Word::ones(~literal Size 4)
+(~literal Word 10101)
