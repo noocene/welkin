@@ -10,7 +10,6 @@ pub mod hash;
 use hash::{Hash, ReferenceHash};
 
 pub mod definitions;
-pub mod parser;
 
 pub mod compiler;
 

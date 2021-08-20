@@ -1,6 +1,7 @@
 use welkin_core::term::Term as CoreTerm;
 
-use super::{AbsolutePath, Resolve};
+use super::Resolve;
+use parser::AbsolutePath;
 
 use std::fmt::Debug;
 

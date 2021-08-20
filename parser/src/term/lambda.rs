@@ -1,7 +1,7 @@
 use bumpalo::Bump;
 use combine::{Parser, Stream};
 
-use crate::parser::{util::BumpBox, Ident};
+use crate::{util::BumpBox, Ident};
 
 use super::{term, Context, Term};
 

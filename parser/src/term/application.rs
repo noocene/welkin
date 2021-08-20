@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use bumpalo::Bump;
 use combine::{any, look_ahead, optional, parser::combinator::Either, value, Parser, Stream};
 
-use crate::parser::{
+use crate::{
     util::{comma_separated1, delimited, BumpBox},
     BumpVec,
 };

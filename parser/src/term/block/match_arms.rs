@@ -1,4 +1,4 @@
-use crate::parser::{
+use crate::{
     term::{term, term_fragment, Context},
     util::{
         bare_ident, bump_many, comma_separated, comma_separated1, delimited, ident, string, token,
@@ -18,22 +18,22 @@ use super::Block;
 
 #[derive(Debug, Clone)]
 pub struct Arm<'a> {
-    pub(crate) expression: Term<'a>,
-    pub(crate) introductions: BumpVec<'a, (Ident<'a>, bool)>,
+    pub expression: Term<'a>,
+    pub introductions: BumpVec<'a, (Ident<'a>, bool)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Section<'a> {
-    pub(crate) ty: Term<'a>,
-    pub(crate) self_binding: Ident<'a>,
-    pub(crate) arms: BumpVec<'a, Arm<'a>>,
+    pub ty: Term<'a>,
+    pub self_binding: Ident<'a>,
+    pub arms: BumpVec<'a, Arm<'a>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Match<'a> {
-    pub(crate) expression: BumpBox<'a, Term<'a>>,
-    pub(crate) indices: BumpVec<'a, Ident<'a>>,
-    pub(crate) sections: BumpVec<'a, Section<'a>>,
+    pub expression: BumpBox<'a, Term<'a>>,
+    pub indices: BumpVec<'a, Ident<'a>>,
+    pub sections: BumpVec<'a, Section<'a>>,
 }
 
 fn match_arm<'a, Input>(context: Context, bump: &'a Bump) -> impl Parser<Input, Output = Arm<'a>>

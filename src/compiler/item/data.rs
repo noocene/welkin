@@ -2,10 +2,9 @@ use welkin_core::term::Term as CoreTerm;
 
 use std::fmt::Debug;
 
-use crate::{
-    compiler::{term::Compile as _, AbsolutePath, Resolve},
-    parser::{util::BumpVec, Data, Ident, Path, Term},
-};
+use crate::compiler::{term::Compile as _, Resolve};
+
+use parser::{util::BumpVec, AbsolutePath, Data, Ident, Path, Term};
 
 use super::Compile;
 

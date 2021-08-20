@@ -9,8 +9,8 @@ pub type BumpBox<'a, T> = BumpWrapper<'a, BBox<'a, T>>;
 pub type BumpVec<'a, T> = BumpWrapper<'a, BVec<'a, T>>;
 
 pub struct BumpWrapper<'a, T> {
-    pub(crate) data: T,
-    pub(crate) bump: &'a Bump,
+    pub data: T,
+    pub bump: &'a Bump,
 }
 
 impl<'a, T> IntoIterator for BumpVec<'a, T> {

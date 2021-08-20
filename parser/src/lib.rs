@@ -1,10 +1,33 @@
 use combine::{
     choice, optional, parser, parser::char::spaces, token as bare_token, value, Parser, Stream,
 };
+use std::fmt::{self, Debug};
+use welkin_core::term::Show;
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct AbsolutePath(pub Vec<String>);
+
+impl Debug for AbsolutePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for item in &self.0 {
+            write!(f, "::{}", item)?;
+        }
+        Ok(())
+    }
+}
+
+impl Show for AbsolutePath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for item in &self.0 {
+            write!(f, "::{}", item)?;
+        }
+        Ok(())
+    }
+}
 
 pub mod term;
 pub use term::Term;
-pub(crate) mod util;
+pub mod util;
 
 pub use bumpalo::Bump;
 pub use util::{BumpBox, BumpString, BumpVec};

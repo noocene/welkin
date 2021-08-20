@@ -9,6 +9,8 @@ use combine::{
     token as bare_token, value, Parser, Stream,
 };
 
+pub use block::{Arm, Block, Literal, Match, Section};
+
 use bumpalo::Bump;
 
 use super::{
@@ -24,7 +26,6 @@ mod duplicate;
 use duplicate::duplicate;
 mod block;
 use block::{block, block_keyword};
-pub(crate) use block::{Arm, Block, Literal, Match, Section};
 
 #[derive(Debug, Clone)]
 pub enum Term<'a> {

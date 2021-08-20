@@ -5,7 +5,7 @@ use combine::{
     unexpected_any, Parser, Stream,
 };
 
-use crate::parser::{
+use crate::{
     term::Context,
     util::{bare_ident, delimited},
 };

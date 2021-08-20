@@ -3,14 +3,14 @@ use welkin_core::term::Term as CoreTerm;
 
 use bumpalo::Bump;
 
-use crate::{compiler::AbsolutePath, parser::util::string};
+use crate::{util::string, AbsolutePath};
 
 mod match_arms;
 use match_arms::match_block;
 mod literal;
 use literal::literal;
-pub(crate) use literal::Literal;
-pub(crate) use match_arms::{Arm, Match, Section};
+pub use literal::Literal;
+pub use match_arms::{Arm, Match, Section};
 
 use super::Context;
 

@@ -1,14 +1,14 @@
 use welkin_core::term::Term as CoreTerm;
 
-use crate::parser::{
+use parser::{
     term::{Block, Literal, Term},
     util::BumpBox,
-    BumpString, BumpVec, Ident, Path,
+    AbsolutePath, BumpString, BumpVec, Ident, Path,
 };
 
 mod match_arms;
 
-use super::{AbsolutePath, Resolve, Resolved};
+use super::{Resolve, Resolved};
 
 pub trait Compile<T> {
     type Relative;

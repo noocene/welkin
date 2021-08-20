@@ -4,12 +4,11 @@ use std::{
 
 use combine::{stream::position, EasyParser};
 use welkin::{
-    compiler::{
-        item::Compile as _, term::Compile as _, AbsolutePath, BumpPath, LocalResolver, Resolve,
-    },
-    parser::{items, BlockItem, BumpString, BumpVec, Ident, Item, Path},
+    compiler::{item::Compile as _, term::Compile as _, BumpPath, LocalResolver, Resolve},
     Bumpalo,
 };
+
+use parser::{items, AbsolutePath, BlockItem, BumpString, BumpVec, Ident, Item, Path};
 
 use walkdir::WalkDir;
 use welkin_core::term::{

@@ -8,13 +8,10 @@ use welkin_core::term::{
     alloc::Allocator, DefinitionResult, Index, Primitives, Show, Term as CoreTerm, TypedDefinitions,
 };
 
-use crate::parser::{Ident, Path};
+use parser::{AbsolutePath, Ident, Path};
 
 pub mod item;
 pub mod term;
-
-#[derive(Clone, Hash, PartialEq, Eq)]
-pub struct AbsolutePath(pub Vec<String>);
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct BumpPath<'a>(pub bumpalo::collections::Vec<'a, bumpalo::collections::String<'a>>);
@@ -85,21 +82,6 @@ impl<
                     .map_reference_in(|a| CoreTerm::Reference((self.backward)(a)), self.alloc),
             ))
         })
-    }
-}
-
-impl Show for AbsolutePath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in &self.0 {
-            write!(f, "::{}", item)?;
-        }
-        Ok(())
-    }
-}
-
-impl Debug for AbsolutePath {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        Show::fmt(self, f)
     }
 }
 

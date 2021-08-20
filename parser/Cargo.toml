@@ -1,5 +1,5 @@
 [package]
-name = "welkin"
+name = "parser"
 version = "0.1.0"
 authors = ["Izzy Swart <zenerboson@gmail.com>"]
 edition = "2018"
@@ -9,9 +9,4 @@ bumpalo = { version = "3.6.1", features = ["boxed", "collections"] }
 combine = "4.5.2"
 ring = "0.16.20"
 serde = { version = "1.0.125", features = ["derive"] }
-walkdir = "2.3.2"
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
-parser = { path = "./parser" }
-
-[workspace]
-members = [".", "./parser"]

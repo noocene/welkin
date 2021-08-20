@@ -1,10 +1,9 @@
-use crate::{
-    compiler::{AbsolutePath, Resolve},
-    parser::{
-        term::{Arm, Block, Match, Section},
-        util::{BumpBox, BumpVec},
-        Ident, Path, Term,
-    },
+use crate::compiler::Resolve;
+
+use parser::{
+    term::{Arm, Block, Match, Section},
+    util::{BumpBox, BumpVec},
+    AbsolutePath, Ident, Path, Term,
 };
 use welkin_core::term::Term as CoreTerm;
 

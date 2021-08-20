@@ -1,10 +1,4 @@
 main:
-'Size
+'Word[~literal Size 4]
 
-Size::induct[
-    _ |> Size
-](
-    (~literal Size 3),
-    > (~literal Size 4),
-    > _ ||> size |> Size::succ(size)
-)
+Word::ones(~literal Size 4)
