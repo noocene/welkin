@@ -1,3 +1,3 @@
 ~data Char {
-    new(value: Word[Size::thirty_two])
+    new(value: Word[~literal Size 32])
 }

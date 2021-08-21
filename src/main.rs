@@ -8,7 +8,10 @@ use welkin::{
     Bumpalo,
 };
 
-use parser::{items, AbsolutePath, BlockItem, BumpString, BumpVec, Ident, Item, Path};
+use parser::{
+    items, term::term as parse_term, AbsolutePath, BlockItem, BumpString, BumpVec, Ident, Item,
+    Path,
+};
 
 use walkdir::WalkDir;
 use welkin_core::term::{
@@ -16,7 +19,7 @@ use welkin_core::term::{
     Index, MapCache, Primitives, Term, TypedDefinitions,
 };
 
-fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
+fn read_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
     if let Term::Lambda { body, .. } = term {
         if let Term::Lambda { body, .. } = body.into_inner() {
             let mut term = body;
@@ -32,7 +35,7 @@ fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
     panic!()
 }
 
-fn format_bool<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> bool {
+fn read_bool<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> bool {
     if let Term::Lambda { body, .. } = term {
         if let Term::Lambda { body, .. } = body.into_inner() {
             if let Term::Variable(var) = body.into_inner() {
@@ -48,8 +51,7 @@ fn format_bool<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
     }
 }
 
-#[allow(dead_code)]
-fn format_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> Vec<bool> {
+fn read_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> Vec<bool> {
     let mut data = vec![];
     let mut term = term;
     loop {
@@ -70,6 +72,94 @@ fn format_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
             }
             _ => panic!("invalid word"),
         }
+    }
+}
+
+fn read_char<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> char {
+    if let Term::Lambda { body, .. } = term {
+        if let Term::Apply { argument, .. } = body.into_inner() {
+            let bits = read_word(argument.into_inner());
+            let mut bytes = [0u8; 4];
+
+            for (bit, bits) in bits.as_slice().chunks(8).rev().enumerate() {
+                let mut byte = 0u8;
+
+                for idx in bits
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, bit)| **bit)
+                    .map(|(idx, _)| idx)
+                {
+                    byte |= 1 << (7 - idx);
+                }
+
+                bytes[bit] = byte;
+            }
+
+            char::from_u32(u32::from_be_bytes(bytes)).unwrap()
+        } else {
+            panic!()
+        }
+    } else {
+        panic!()
+    }
+}
+
+fn read_vector<T, V: Primitives<T>, A: Allocator<T, V>, U>(
+    term: Term<T, V, A>,
+    read_element: impl Fn(Term<T, V, A>) -> U,
+) -> Vec<U> {
+    let mut data = vec![];
+    let mut term = term;
+    let mut data = loop {
+        while let Term::Lambda { body, .. } = term {
+            term = body.into_inner();
+        }
+        match term {
+            Term::Variable(_) => break data,
+            Term::Apply {
+                argument, function, ..
+            } => {
+                if let Term::Apply { argument, .. } = function.into_inner() {
+                    data.push(read_element(argument.into_inner()));
+                } else {
+                    panic!()
+                }
+                term = argument.into_inner();
+            }
+            _ => panic!("invalid vector"),
+        }
+    };
+    data.reverse();
+    data
+}
+
+fn read_string<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
+    if let Term::Lambda { body, .. } = term {
+        if let Term::Apply { argument, .. } = body.into_inner() {
+            read_vector(argument.into_inner(), read_char)
+                .into_iter()
+                .collect()
+        } else {
+            panic!()
+        }
+    } else {
+        panic!()
+    }
+}
+
+fn read_sized<T, V: Primitives<T>, A: Allocator<T, V>, U>(
+    term: Term<T, V, A>,
+    read_element: impl Fn(Term<T, V, A>) -> U,
+) -> U {
+    if let Term::Lambda { body, .. } = term {
+        if let Term::Apply { argument, .. } = body.into_inner() {
+            read_element(argument.into_inner())
+        } else {
+            panic!()
+        }
+    } else {
+        panic!()
     }
 }
 
@@ -297,10 +387,14 @@ fn main() {
 
             let mut is_ty = |ty: &Term<_, _, _>, name: &str| {
                 ty.equivalent_in(
-                    &Term::Reference(BumpPath::new_in(
-                        AbsolutePath(vec![name.into()]),
-                        &defs_bump,
-                    )),
+                    &defs_bm.reallocating_copy(
+                        &parse_term(Default::default(), &bump)
+                            .easy_parse(name)
+                            .unwrap()
+                            .0
+                            .compile(LocalResolver::new())
+                            .map_reference(|a| Term::Reference(BumpPath::new_in(a, &defs_bump))),
+                    ),
                     &defs,
                     &defs_bm,
                     &mut cache,
@@ -309,9 +403,13 @@ fn main() {
             };
 
             if is_ty(&ty, "Size") {
-                format_size(main)
+                read_size(main)
             } else if is_ty(&ty, "Bool") {
-                format!("BOOL = {:?}", format_bool(main))
+                format!("BOOL = {:?}", read_bool(main))
+            } else if is_ty(&ty, "Char") {
+                format!("CHAR = {:?}", read_char(main))
+            } else if is_ty(&ty, "Sized[String]") {
+                format!("SIZED STRING = {:?}", read_sized(main, read_string))
             } else {
                 format!("{:?}", main)
             }

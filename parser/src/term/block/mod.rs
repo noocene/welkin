@@ -24,7 +24,7 @@ where
 #[derive(Debug, Clone)]
 pub enum Block<'a> {
     AbsoluteCore(CoreTerm<AbsolutePath>),
-    Literal(Literal, &'a Bump),
+    Literal(Literal<'a>, &'a Bump),
     Match(Match<'a>),
 }
 

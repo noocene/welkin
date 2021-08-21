@@ -1,4 +1,7 @@
 main:
-Word[~literal Size 8]
+Sized[String]
 
-(~literal Word 10101010)
+Sized::new[String](
+    ~literal Size 12,
+    ~literal String "Hello world!"
+)
