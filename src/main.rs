@@ -13,7 +13,7 @@ use parser::{items, AbsolutePath, BlockItem, BumpString, BumpVec, Ident, Item, P
 use walkdir::WalkDir;
 use welkin_core::term::{
     alloc::{Allocator, IntoInner, Reallocate},
-    Index, Primitives, Term, TypedDefinitions,
+    Index, MapCache, Primitives, Term, TypedDefinitions,
 };
 
 fn format_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
@@ -74,6 +74,8 @@ fn format_word<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> 
 }
 
 fn main() {
+    let mut cache = MapCache::new();
+
     let mut declarations = vec![];
     let bump = bumpalo::Bump::new();
 
@@ -223,11 +225,11 @@ fn main() {
             er = 1;
         }
 
-        if let Err(e) = term.check_in(&ty, &defs, &bm) {
+        if let Err(e) = term.check_in(&ty, &defs, &bm, &mut cache) {
             errs.push_str(&format!("\n{:?} ERR\n{:?}\n", path, e));
             er = 1;
         } else {
-            if let Err(e) = ty.check_in(&Term::Universe, &defs, &bm) {
+            if let Err(e) = ty.check_in(&Term::Universe, &defs, &bm, &mut cache) {
                 errs.push_str(&format!(
                     "\n{:?} ERR\n{:?}\nwhen checking {:?} in universe\n",
                     path, e, ty
@@ -255,7 +257,7 @@ fn main() {
         parsing_time, codegen_time, tc_time
     );
 
-    if tc_time > 1000 {
+    if tc_time > 200 {
         println!("\nTOP 3 TC:");
         for (name, time) in tc_times {
             println!(
@@ -293,7 +295,7 @@ fn main() {
                 ty = t.into_inner();
             }
 
-            let is_ty = |ty: &Term<_, _, _>, name: &str| {
+            let mut is_ty = |ty: &Term<_, _, _>, name: &str| {
                 ty.equivalent_in(
                     &Term::Reference(BumpPath::new_in(
                         AbsolutePath(vec![name.into()]),
@@ -301,6 +303,7 @@ fn main() {
                     )),
                     &defs,
                     &defs_bm,
+                    &mut cache,
                 )
                 .unwrap()
             };

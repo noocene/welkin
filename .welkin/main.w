@@ -1,4 +1,4 @@
 main:
-Word[~literal Size 5]
+Word[~literal Size 8]
 
-(~literal Word 10101)
+(~literal Word 10101010)
