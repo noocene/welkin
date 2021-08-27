@@ -263,55 +263,49 @@ impl<'a> Compile<AbsolutePath> for Block<'a> {
 
                     term.compile(resolver)
                 }
-                Literal::String(string) => {
-                    println!("{:?}", string);
-                    Term::Application {
-                        function: BumpBox::new_in(
-                            Term::Application {
-                                erased: true,
-                                function: BumpBox::new_in(
-                                    Term::Reference(Path(BumpVec::binary_in(
-                                        Ident(BumpString::from_str("String", bump)),
-                                        Ident(BumpString::from_str("new", bump)),
+                Literal::String(string) => Term::Application {
+                    function: BumpBox::new_in(
+                        Term::Application {
+                            erased: true,
+                            function: BumpBox::new_in(
+                                Term::Reference(Path(BumpVec::binary_in(
+                                    Ident(BumpString::from_str("String", bump)),
+                                    Ident(BumpString::from_str("new", bump)),
+                                    bump,
+                                ))),
+                                bump,
+                            ),
+                            arguments: BumpVec::unary_in(
+                                Term::Block(Block::Literal(Literal::Size(string.len()), bump)),
+                                bump,
+                            ),
+                        },
+                        bump,
+                    ),
+                    arguments: BumpVec::unary_in(
+                        Term::Block(Block::Literal(
+                            Literal::Vector {
+                                ty: BumpBox::new_in(
+                                    Term::Reference(Path(BumpVec::unary_in(
+                                        Ident(BumpString::from_str("Char", bump)),
                                         bump,
                                     ))),
                                     bump,
                                 ),
-                                arguments: BumpVec::unary_in(
-                                    Term::Block(Block::Literal(Literal::Size(string.len()), bump)),
+                                elements: BumpVec::from_iterator(
+                                    string.chars().map(|character| {
+                                        Term::Block(Block::Literal(Literal::Char(character), bump))
+                                    }),
                                     bump,
                                 ),
                             },
                             bump,
-                        ),
-                        arguments: BumpVec::unary_in(
-                            Term::Block(Block::Literal(
-                                Literal::Vector {
-                                    ty: BumpBox::new_in(
-                                        Term::Reference(Path(BumpVec::unary_in(
-                                            Ident(BumpString::from_str("Char", bump)),
-                                            bump,
-                                        ))),
-                                        bump,
-                                    ),
-                                    elements: BumpVec::from_iterator(
-                                        string.chars().map(|character| {
-                                            Term::Block(Block::Literal(
-                                                Literal::Char(character),
-                                                bump,
-                                            ))
-                                        }),
-                                        bump,
-                                    ),
-                                },
-                                bump,
-                            )),
-                            bump,
-                        ),
-                        erased: false,
-                    }
-                    .compile(resolver)
+                        )),
+                        bump,
+                    ),
+                    erased: false,
                 }
+                .compile(resolver),
             },
         }
     }
