@@ -66,4 +66,3 @@ call < Size::induct[
     > n ||> cont |> state ||> data |> call[n, state](data, cont)
 )
 > call[top](initial)
-
