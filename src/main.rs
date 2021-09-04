@@ -1,5 +1,9 @@
 use std::{
-    collections::HashMap, fs::read_to_string, path::Component, process::exit, time::SystemTime,
+    collections::{HashMap, HashSet},
+    fs::read_to_string,
+    path::Component,
+    process::exit,
+    time::SystemTime,
 };
 
 use combine::{stream::position, EasyParser};
@@ -173,6 +177,12 @@ fn main() {
     let mut tc_times = vec![];
     let mut codegen_time = 0;
 
+    let names = if let Ok(dump) = std::env::var("WELKIN_DUMP_NAMES") {
+        dump.split(",").into_iter().map(String::from).collect()
+    } else {
+        HashSet::new()
+    };
+
     for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
         eprintln!("USAGE:\nwelkin <SOURCE_DIR>");
         exit(1)
@@ -229,6 +239,9 @@ fn main() {
                 if let Item::Declaration(t) = item {
                     let ty = t.ty.compile(LocalResolver::new());
                     let term = t.term.compile(LocalResolver::new());
+                    if names.contains(&hr_name) {
+                        println!("NAME: {}\n{:?}\n{:?}\n", hr_name, ty, term);
+                    }
                     let name = if name.len() == 0 {
                         vec![t.ident.0]
                     } else {
@@ -250,6 +263,11 @@ fn main() {
                     #[allow(irrefutable_let_patterns)]
                     if let BlockItem::Data(data) = block {
                         let compiled = data.compile(LocalResolver::new());
+                        if names.contains(&hr_name) {
+                            for (_, ty, term) in &compiled {
+                                println!("NAME: {}\n{:?}\n{:?}\n", hr_name, ty, term);
+                            }
+                        }
                         declarations.extend(compiled);
                     }
                 }

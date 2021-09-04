@@ -1,30 +1,87 @@
 map_cont:
-* ~as A        |->
-* ~as B        |->
-Size ~as size  |->
-(A -> B)        ->
-Vector[A, size] ->
+* ~as A    |->
+* ~as B    |->
+(A -> B)    ->
+Size ~as n |->
+Unit       |->
+Vector[
+	A, Size::succ(n)
+]           ->
 (
-    Size ~as size  |->
-    Vector[A, size] ->
-    Vector[B, size]
+    Unit        |->
+    Vector[A, n] ->
+    Vector[B, n]
 )               ->
-Vector[B, size]
+Vector[
+    B, Size::succ(n)
+]
 
-A ||>
-B ||>
-size ||>
-call |>
+
+A ||> B ||>
+conv |>
+n ||> _ ||>
 vector |>
 cont |>
-~match vector ~with size {
-    nil = Vector::nil[B]
+elim < Size::pred_succ_elim(n)
+(~match vector ~with size {
+    nil = _ |> Vector::nil[B]
     cons[size](
         head,
         tail
-    )   = Vector::cons[B, size](
-        call(head),
-        cont[size](tail)
-    )
-    : _ |> Vector[B, size]
-}
+    )   = 
+        elim < Size::pred_succ_elim(size)
+        c |> Vector::cons[B, size](
+            conv(head),
+	        Equal::rewrite[
+                Size,
+                Size::pred(Size::succ(size)),
+                size,
+                size |> Vector[B, size]
+            ](elim, c[Unit::new](Equal::rewrite[
+                Size,
+                size,
+                Size::pred(Size::succ(size)),
+                size |> Vector[A, size]
+            ](Equal::flip[
+                Size,
+                Size::pred(Size::succ(size)),
+                size
+            ](elim), tail)))
+    	)
+    : tester |>
+        (
+            Unit |->        
+            Vector[
+                A,
+                Size::pred(size)
+            ]     ->
+            Vector[
+                B,
+                Size::pred(size)
+            ]
+        ) ->
+        is_zero < Size::is_zero(size)
+        Vector[B, (~match is_zero {
+            true  = Size::zero
+            false = size
+            : _ |> Size
+        })]
+})(
+    _ ||>
+    vector |>
+    Equal::rewrite[
+        Size,
+        n,
+        Size::pred(Size::succ(n)),
+        size |> Vector[B, size]
+    ](Equal::flip[
+        Size,
+        Size::pred(Size::succ(n)),
+        n
+    ](elim), cont[Unit::new](Equal::rewrite[
+        Size,
+        Size::pred(Size::succ(n)),
+        n,
+        size |> Vector[A, size]
+    ](elim, vector)))
+)
