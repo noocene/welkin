@@ -1,7 +1,6 @@
-map_cont:
+concat_cont:
 * ~as A    |->
-* ~as B    |->
-(A -> B)    ->
+Size ~as m |->
 Size ~as n |->
 Unit       |->
 Vector[
@@ -10,33 +9,33 @@ Vector[
 (
     Unit        |->
     Vector[A, n] ->
-    Vector[B, n]
+    Vector[A, Size::add(n, m)]
 )           ->
 Vector[
-    B, Size::succ(n)
+    A, Size::add(Size::succ(n), m)
 ]
 
-
-A ||> B ||>
-conv |>
-n ||> _ ||>
+A ||>
+m ||>
+n ||>
+_ ||>
 vector |>
 cont |>
 elim < Size::pred_succ_elim(n)
 (~match vector ~with size {
-    nil = _ |> Vector::nil[B]
+    nil = _ |> Vector::nil[A]
     cons[size](
         head,
         tail
     )   = 
         elim < Size::pred_succ_elim(size)
-        c |> Vector::cons[B, size](
-            conv(head),
+        c |> Vector::cons[A, Size::add(size, m)](
+            head,
 	        Equal::rewrite[
                 Size,
                 Size::pred(Size::succ(size)),
                 size,
-                size |> Vector[B, size]
+                size |> Vector[A, Size::add(size, m)]
             ](elim, c(Equal::rewrite[
                 Size,
                 size,
@@ -55,18 +54,23 @@ elim < Size::pred_succ_elim(n)
                 Size::pred(size)
             ]     ->
             Vector[
-                B,
-                Size::pred(size)
+                A,
+                Size::add(Size::pred(size), m)
             ]
         ) ->
-        Vector[B, size]
+        is_zero < Size::is_zero(size)
+        (~match is_zero {
+            true  = Vector[A, Size::zero]
+            false = Vector[A, Size::add(size, m)]
+            : _ |> *
+        })
 })(
     vector |>
     Equal::rewrite[
         Size,
         n,
         Size::pred(Size::succ(n)),
-        size |> Vector[B, size]
+        size |> Vector[A, Size::add(size, m)]
     ](Equal::flip[
         Size,
         Size::pred(Size::succ(n)),
