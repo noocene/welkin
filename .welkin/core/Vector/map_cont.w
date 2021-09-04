@@ -37,7 +37,7 @@ elim < Size::pred_succ_elim(n)
                 Size::pred(Size::succ(size)),
                 size,
                 size |> Vector[B, size]
-            ](elim, c[Unit::new](Equal::rewrite[
+            ](elim, c(Equal::rewrite[
                 Size,
                 size,
                 Size::pred(Size::succ(size)),
@@ -50,7 +50,6 @@ elim < Size::pred_succ_elim(n)
     	)
     : tester |>
         (
-            Unit |->        
             Vector[
                 A,
                 Size::pred(size)
@@ -60,14 +59,8 @@ elim < Size::pred_succ_elim(n)
                 Size::pred(size)
             ]
         ) ->
-        is_zero < Size::is_zero(size)
-        Vector[B, (~match is_zero {
-            true  = Size::zero
-            false = size
-            : _ |> Size
-        })]
+        Vector[B, size]
 })(
-    _ ||>
     vector |>
     Equal::rewrite[
         Size,
