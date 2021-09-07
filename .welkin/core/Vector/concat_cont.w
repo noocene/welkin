@@ -1,7 +1,7 @@
 concat_cont:
 * ~as A    |->
 Size ~as m |->
-Size ~as n |->
+Size ~as n  ->
 Unit       |->
 Vector[
 	A, Size::succ(n)
@@ -17,7 +17,7 @@ Vector[
 
 A ||>
 m ||>
-n ||>
+n  |>
 _ ||>
 vector |>
 cont |>

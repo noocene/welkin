@@ -12,7 +12,7 @@ m |>
 as |>
 bs |>
 bs < bs
-Size::recurse[
+Size::recurse_indexed[
     Unit,
     n |> _ |> Pair::new[*, *](
         Vector[A, n],
@@ -22,6 +22,6 @@ Size::recurse[
 ](
     n,
     as,
-    > Vector::concat_base[A, m](bs),
+    > Vector::concat_base[A](m, bs),
     > Vector::concat_cont[A, m]
 )

@@ -12,7 +12,7 @@ size |>
 vector |>
 call |>
 call < call
-Size::recurse[
+Size::recurse_indexed[
     Unit,
     n |> _ |> Pair::new[*, *](
         Vector[A, n],

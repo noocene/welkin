@@ -1,6 +1,6 @@
 concat_base:
 * ~as A     |->
-Size ~as m  |->
+Size ~as m   ->
 Vector[A, m] ->
 Unit        |->
 Vector[
@@ -11,7 +11,7 @@ Vector[
 ]
 
 A ||>
-m ||>
+m |>
 bs |>
 _ ||>
 _ |>
