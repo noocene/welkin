@@ -5,7 +5,7 @@ map_cont:
 Size ~as n  ->
 Unit       |->
 Vector[
-	A, Size::succ(n)
+    A, Size::succ(n)
 ]           ->
 (
     Unit        |->
@@ -32,7 +32,7 @@ elim < Size::pred_succ_elim(n)
         elim < Size::pred_succ_elim(size)
         c |> Vector::cons[B, size](
             conv(head),
-	        Equal::rewrite[
+            Equal::rewrite[
                 Size,
                 Size::pred(Size::succ(size)),
                 size,
@@ -47,7 +47,7 @@ elim < Size::pred_succ_elim(n)
                 Size::pred(Size::succ(size)),
                 size
             ](elim), tail)))
-    	)
+        )
     : _ |>
         (
             Vector[

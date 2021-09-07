@@ -4,7 +4,7 @@ Size ->
 
 n |>
 Size::fold[
-	Nat
+    Nat
 ](
     n,
     > Nat::zero,

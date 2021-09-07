@@ -22,7 +22,7 @@ Size ~as n            ->
 '(
     Size ~as n   ->
     A ~as state |->
-	Pair::left[*, *](
+    Pair::left[*, *](
         prop(Size::succ(n), state)
     )            -> 
     (

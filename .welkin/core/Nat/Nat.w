@@ -1,4 +1,4 @@
 ~data Nat {
-	zero,
+    zero,
     succ(pred: Nat)
 }

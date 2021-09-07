@@ -31,10 +31,10 @@ F < n[
     )
 )
 > Z |> F(
-	b |> b[
-		b |> P(Size::zero) ->
+    b |> b[
+        b |> P(Size::zero) ->
         b[
-		    b |> *
+            b |> *
         ](
             P(Size::pred(Size::zero)),
             P(Size::pred(Size::succ(Size::zero)))

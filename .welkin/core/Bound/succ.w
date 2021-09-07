@@ -4,7 +4,7 @@ Bound
 
 bound |>
 ~match bound {
-	new[nat](
+    new[nat](
         size,
         proof
     ) = Bound::new[

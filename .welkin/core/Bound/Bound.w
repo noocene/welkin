@@ -1,5 +1,5 @@
 ~data Bound {
-	new[nat: Nat](
+    new[nat: Nat](
         size: Size,
         proof: Equal[
             'Nat,

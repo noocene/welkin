@@ -1,7 +1,7 @@
 add_zero_r_elim:
 Size ~as n ->
 'Equal[
-	Size,
+    Size,
     Size::add(n, Size::zero),
     n
 ]

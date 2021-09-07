@@ -12,10 +12,10 @@ bs |>
 as < as
 bs < bs
 vector < ~match as ~with size {
-	new[o](av) = ~match bs ~with size {
-		new[p](bv) = Vector::concat[Char](o, p, > av, > bv)
-		: _ |> 'Vector[Char, Size::add(o, size)]
-	}
-	: _ |> 'Vector[Char, Size::add(size, m)]
+    new[o](av) = ~match bs ~with size {
+        new[p](bv) = Vector::concat[Char](o, p, > av, > bv)
+        : _ |> 'Vector[Char, Size::add(o, size)]
+    }
+    : _ |> 'Vector[Char, Size::add(size, m)]
 }
 > String::new[Size::add(n, m)](vector)
