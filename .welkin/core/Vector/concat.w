@@ -1,7 +1,7 @@
 concat:
-* ~as A     |->
-Size ~as n   ->
-Size ~as m   ->
+* ~as A      |->
+Size ~as n    ->
+Size ~as m    ->
 'Vector[A, n] ->
 'Vector[A, m] ->
 'Vector[A, Size::add(n, m)]

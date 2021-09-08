@@ -9,13 +9,18 @@ n |>
 m |>
 as |>
 bs |>
-as < as
-bs < bs
-vector < ~match as ~with size {
-    new[o](av) = ~match bs ~with size {
-        new[p](bv) = Vector::concat[Char](o, p, > av, > bv)
-        : _ |> 'Vector[Char, Size::add(o, size)]
+vector < Vector::concat[Char](
+    n,
+    m,
+    as < as
+    > ~match as ~with size {
+        new[_](vector) = vector
+        : _ |> Vector[Char, size]
+    },
+    bs < bs
+    > ~match bs ~with size {
+        new[_](vector) = vector
+        : _ |> Vector[Char, size]
     }
-    : _ |> 'Vector[Char, Size::add(size, m)]
-}
+)
 > String::new[Size::add(n, m)](vector)
