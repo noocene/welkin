@@ -23,6 +23,6 @@ Size::recurse[
 ](
     n,
     as,
-    > Vector::concat_base[A](m, elim, bs),
+    > Vector::concat_base[A, m](elim, bs),
     > Vector::concat_cont[A, m]
 )

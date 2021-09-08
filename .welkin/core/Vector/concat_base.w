@@ -1,6 +1,6 @@
 concat_base:
 * ~as A     |->
-Size ~as m   ->
+Size ~as m  |->
 Equal[
     Size,
     Size::add(Size::zero, m),
@@ -16,7 +16,7 @@ Vector[
 ]
 
 A ||>
-m |>
+m ||>
 elim |>
 bs |>
 _ ||>
