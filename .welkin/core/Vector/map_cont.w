@@ -2,7 +2,7 @@ map_cont:
 * ~as A    |->
 * ~as B    |->
 (A -> B)    ->
-Size ~as n  ->
+Size ~as n |->
 Unit       |->
 Vector[
     A, Size::succ(n)
@@ -19,7 +19,7 @@ Vector[
 
 A ||> B ||>
 conv |>
-n |> _ ||>
+n ||> _ ||>
 vector |>
 cont |>
 (~match vector ~with size {
