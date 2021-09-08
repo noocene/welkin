@@ -115,7 +115,7 @@ fn read_vector<T, V: Primitives<T>, A: Allocator<T, V>, U>(
 ) -> Vec<U> {
     let mut data = vec![];
     let mut term = term;
-    let mut data = loop {
+    loop {
         while let Term::Lambda { body, .. } = term {
             term = body.into_inner();
         }
@@ -133,9 +133,7 @@ fn read_vector<T, V: Primitives<T>, A: Allocator<T, V>, U>(
             }
             _ => panic!("invalid vector"),
         }
-    };
-    data.reverse();
-    data
+    }
 }
 
 fn read_string<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {

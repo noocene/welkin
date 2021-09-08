@@ -244,7 +244,7 @@ impl<'a> Compile<AbsolutePath> for Block<'a> {
                         erased: true,
                     };
 
-                    for (idx, element) in elements.into_iter().enumerate() {
+                    for (idx, element) in elements.into_iter().rev().enumerate() {
                         let call = Term::Application {
                             function: BumpBox::new_in(cons.clone(), bump),
                             arguments: BumpVec::unary_in(

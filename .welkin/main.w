@@ -1,13 +1,13 @@
 main:
 'Sized[String]
 
-String::concat_sized(
-    > Sized::new[String](
-        ~literal Size 6,
-        ~literal String "Hello "
-    ),
-    > Sized::new[String](
-        ~literal Size 6,
-        ~literal String "world!"
-    )
+string < String::concat(
+    ~literal Size 3,
+    ~literal Size 2,
+    > ~literal String "Hel",
+    > ~literal String "lo"
+)
+> Sized::new[String](
+    ~literal Size 5,
+    string
 )
