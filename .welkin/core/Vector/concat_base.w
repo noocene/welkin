@@ -1,6 +1,11 @@
 concat_base:
 * ~as A     |->
 Size ~as m   ->
+Equal[
+    Size,
+    Size::add(Size::zero, m),
+    m
+]            ->
 Vector[A, m] ->
 Unit        |->
 Vector[
@@ -12,10 +17,10 @@ Vector[
 
 A ||>
 m |>
+elim |>
 bs |>
 _ ||>
 _ |>
-elim < Size::add_zero_l_elim(m)
 Equal::rewrite[
     Size,
     m,
