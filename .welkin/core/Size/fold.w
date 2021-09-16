@@ -9,12 +9,11 @@ A ||>
 n |>
 initial |>
 call |>
-initial < initial
 call < call
-f < n[
-    x |> A
-](>
-    n ||> h |>
-    call(h)
+Size::induct[
+    n |> A
+](
+    n,
+    initial,
+    > n ||> call
 )
-> f(initial)
