@@ -1,13 +1,24 @@
 main:
 Whelk
 
-Whelk::new[~literal Size 1](
-    data |>
+data < WhelkIO::bind[
+    Sized[String],
+    Unit
+](
+    ~literal Size 1,
+    ~literal Size 1,
+    > prompt,
+    >
+        data |>
+        print(data)
+)
+
+Whelk::new[
+    ~literal Size 2,
+    ~literal Size 1
+](
     BoxPoly::new[
-        Sized[String],
+        WhelkIO[Unit, ~literal Size 2],
         ~literal Size 1
-    ](> Sized::new[String](
-        ~literal Size 5,
-        ~literal String "hello"
-    ))
+    ](> data)
 )

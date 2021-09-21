@@ -11,10 +11,13 @@ mod string;
 pub use string::WString;
 mod sized;
 pub use sized::WSized;
-mod whelk;
-pub use whelk::Whelk;
 mod box_poly;
 pub use box_poly::BoxPoly;
+mod unit;
+pub use unit::Unit;
+mod io;
+pub use io::Io;
+pub mod whelk;
 
 pub trait FromWelkin: Sized {
     type Error;
