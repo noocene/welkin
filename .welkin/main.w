@@ -1,13 +1,13 @@
 main:
-'Sized[String]
+Whelk
 
-string < String::concat(
-    ~literal Size 3,
-    ~literal Size 2,
-    > ~literal String "Hel",
-    > ~literal String "lo"
-)
-> Sized::new[String](
-    ~literal Size 5,
-    string
+Whelk::new[~literal Size 1](
+    data |>
+    BoxPoly::new[
+        Sized[String],
+        ~literal Size 1
+    ](> Sized::new[String](
+        ~literal Size 5,
+        ~literal String "hello"
+    ))
 )

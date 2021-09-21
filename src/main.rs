@@ -18,9 +18,12 @@ use parser::{
 };
 
 use walkdir::WalkDir;
-use welkin_core::term::{
-    alloc::{Allocator, IntoInner, Reallocate},
-    Index, MapCache, Primitives, Term, TypedDefinitions,
+use welkin_core::{
+    net::{Net, VisitNetExt},
+    term::{
+        alloc::{Allocator, IntoInner, Reallocate},
+        Index, MapCache, Primitives, Term, TypedDefinitions,
+    },
 };
 
 fn read_size<T, V: Primitives<T>, A: Allocator<T, V>>(term: Term<T, V, A>) -> String {
@@ -390,12 +393,18 @@ fn main() {
             let (ty, term) = data.as_ref();
             let mut ty = defs_bm.copy(ty);
             let term = defs_bm.copy(term);
-            let mut main = term.stratified_in(&defs, &defs_bm).unwrap();
-            // let mut net = main.clone().into_net::<Net<u32>>().unwrap();
-            // net.reduce_all();
-            // let net_norm: Term<String> = net.read_term(welkin_core::net::Index(0));
-            main.normalize().unwrap();
-            let main = main.into_inner();
+            let main = term.stratified_in(&defs, &defs_bm).unwrap();
+            let mut net = main.clone().into_net::<Net<u32>>().unwrap();
+            net.reduce_all();
+            let main: Term<String> = net.read_term(welkin_core::net::Index(0));
+
+            if let Some(a) = std::env::args().nth(2) {
+                if a == "--bundle" {
+                    std::fs::write("./whelk/welkin/term", bincode::serialize(&main).unwrap())
+                        .unwrap();
+                    return;
+                }
+            }
 
             while let Term::Wrap(t) = ty {
                 ty = t.into_inner();
