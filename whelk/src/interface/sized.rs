@@ -5,7 +5,7 @@ use super::{size::InvalidSize, FromWelkin, Size, ToWelkin, WString, Word};
 #[derive(Clone, Debug)]
 pub struct WSized<T: Length>(pub T);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidSized<T: FromWelkin> {
     InvalidSized,
     Contents(T::Error),

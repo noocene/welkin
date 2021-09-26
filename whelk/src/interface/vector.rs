@@ -5,7 +5,7 @@ use super::{FromWelkin, ToWelkin};
 #[derive(Clone, Debug)]
 pub struct Vector<T>(pub Vec<T>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidVector<T: FromWelkin> {
     InvalidVector,
     Contents(T::Error),

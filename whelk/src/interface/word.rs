@@ -5,7 +5,7 @@ use super::{FromWelkin, ToWelkin};
 #[derive(Clone, Debug)]
 pub struct Word(pub Vec<bool>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InvalidWord;
 
 impl FromWelkin for Word {

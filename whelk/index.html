@@ -12,7 +12,7 @@
         <div class="content">
             <div id="container"></div>
         </div>
-        <div>
+        <div id="promptbox">
             <div class="prompt">
                 <p><input id="input" type="text" /></p>
             </div>
@@ -46,6 +46,8 @@
         
         body {
             margin: 0;
+            overflow-y: scroll;
+            margin-bottom: 72px;
         }
         
         h1,
@@ -74,7 +76,6 @@
         }
         
         .content {
-            margin-top: 32px;
             margin: 16px;
         }
         
@@ -87,12 +88,20 @@
             font-size: inherit;
             line-height: inherit;
             border: none;
+            margin: 0;
             width: 100%;
             outline: none;
         }
         
-        .prompt {
-            margin-top: 16px;
+        #promptbox {
+            position: fixed;
+            bottom: 0;
+            width: calc(100% - 8px);
+            left: 0;
+            padding-bottom: 16px;
+            padding-top: 8px;
+            padding-left: 8px;
+            background: black;
         }
         
         #lprompt {
@@ -100,7 +109,20 @@
             position: absolute;
             margin-left: -100%;
         }
+        
+        body::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        body::-webkit-scrollbar-thumb {
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.2);
+        }
     </style>
+
+    <script>
+        document.getElementById('input').focus();
+    </script>
 </body>
 
 </html>

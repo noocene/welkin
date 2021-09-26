@@ -5,7 +5,7 @@ use super::{FromWelkin, ToWelkin};
 #[derive(Clone, Debug)]
 pub struct BoxPoly<T>(pub T);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidBoxPoly<T: FromWelkin> {
     InvalidSized,
     Contents(T::Error),

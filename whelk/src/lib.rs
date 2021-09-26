@@ -1,15 +1,21 @@
 mod evaluator;
 mod interface;
 
-use std::{cell::RefCell, panic, rc::Rc};
+use std::{cell::RefCell, error::Error, panic, rc::Rc};
 
 use bincode::deserialize;
-use futures::{channel::mpsc::unbounded, SinkExt, StreamExt};
-use interface::{whelk::Whelk, FromWelkin, Io, Unit};
+use evaluator::Evaluator;
+use futures::{channel::mpsc::unbounded, SinkExt, Stream, StreamExt};
+use interface::{
+    whelk::{Request, Whelk},
+    FromWelkin, Io, Unit,
+};
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlInputElement, KeyboardEvent};
 use welkin_core::term::Term;
+
+use async_recursion::async_recursion;
 
 use crate::{
     evaluator::Substitution,
@@ -26,6 +32,8 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
         let document = window
             .document()
             .expect("global window has no attached document");
+
+        let body = document.body().expect("document has no body element");
 
         let container = document
             .get_element_by_id("container")
@@ -64,17 +72,16 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
             let paragraph = document.create_element("p").unwrap();
             paragraph.set_text_content(Some(data));
             container.append_child(&paragraph).unwrap();
+            window.scroll_to_with_x_and_y(0., body.scroll_height() as f64);
         };
 
         let (send, mut receive) = unbounded();
 
         let term: Term<String> = deserialize(&term).unwrap();
 
-        let mut whelk = (Whelk::from_welkin(term).unwrap().0).0;
+        let io = (Whelk::from_welkin(term).unwrap().0).0;
 
         let evaluator = Substitution;
-
-        let mut idx = 0;
 
         *input_submit_callback.borrow_mut() = Box::new(move |data| {
             let mut send = send.clone();
@@ -83,49 +90,73 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
             });
         });
 
-        loop {
-            idx += 1;
-            if idx > 20 {
-                break;
-            }
-
-            match whelk {
-                Io::Data(data) => {
-                    push_paragraph(&format!("PURE) \n{:?}", data));
-                    break;
-                }
-                Io::Request(request) => {
-                    let req = request.request();
-                    push_paragraph(&format!(
-                        "REQUEST) \n{}",
-                        match req {
-                            whelk::Request::Prompt => "Prompt",
-                            whelk::Request::Print(_) => "Print",
-                        }
-                    ));
-
-                    match req {
-                        whelk::Request::Prompt => {
-                            push_paragraph(&format!("PROMPT)"));
-                            let message = receive.next().await.unwrap();
-                            push_paragraph(&format!("FULFILLED) {:?}", message));
-                            let io = request
-                                .fulfill(WSized(WString(message)).to_welkin().unwrap(), &evaluator)
-                                .unwrap();
-                            whelk = io;
-                        }
-                        whelk::Request::Print(data) => {
-                            push_paragraph(&format!("PRINT) \n{:?}", (data.0).0));
-                            let io = request
-                                .fulfill(Unit.to_welkin().unwrap(), &evaluator)
-                                .unwrap();
-                            whelk = io
-                        }
-                    }
-                }
-            }
-        }
+        run_io(io, &push_paragraph, &mut receive, &evaluator)
+            .await
+            .unwrap();
     });
 
     Ok(())
+}
+
+#[async_recursion(?Send)]
+async fn run_io<
+    F: Fn(&str),
+    R: Stream<Item = String> + Unpin,
+    E: Evaluator + 'static,
+    D: FromWelkin + 'static,
+>(
+    io: Io<Request, D>,
+    push_paragraph: &F,
+    receive: &mut R,
+    evaluator: &E,
+) -> Result<D, anyhow::Error>
+where
+    E::Error: Error + Send + Sync,
+    <D as FromWelkin>::Error: Send + Sync + Error,
+{
+    match io {
+        Io::Data(data) => Ok(data),
+        Io::Request(request) => {
+            let req = request.request();
+            push_paragraph(&format!(
+                "REQUEST) \n{}",
+                match req {
+                    whelk::Request::Loop(_) => "Loop",
+                    whelk::Request::Prompt => "Prompt",
+                    whelk::Request::Print(_) => "Print",
+                }
+            ));
+
+            match req {
+                whelk::Request::Loop(request) => {
+                    let mut request = request.clone();
+                    loop {
+                        request
+                            .step(&*evaluator, |io| async {
+                                run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
+                            })
+                            .await?;
+                        if request.proceed(&*evaluator)? {
+                            continue;
+                        } else {
+                            break Ok(FromWelkin::from_welkin(request.into_state())?);
+                        }
+                    }
+                }
+                whelk::Request::Prompt => {
+                    push_paragraph(&format!("PROMPT)"));
+                    let message = receive.next().await.unwrap();
+                    push_paragraph(&format!("FULFILLED) {:?}", message));
+                    let io = request
+                        .fulfill(WSized(WString(message)).to_welkin().unwrap(), &*evaluator)?;
+                    run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
+                }
+                whelk::Request::Print(data) => {
+                    push_paragraph(&format!("PRINT) \n{:?}", (data.0).0));
+                    let io = request.fulfill(Unit.to_welkin().unwrap(), &*evaluator)?;
+                    run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
+                }
+            }
+        }
+    }
 }

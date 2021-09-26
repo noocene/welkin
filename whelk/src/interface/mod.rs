@@ -17,6 +17,10 @@ mod unit;
 pub use unit::Unit;
 mod io;
 pub use io::Io;
+mod any;
+pub use any::Any;
+mod bool;
+pub use self::bool::Bool;
 pub mod whelk;
 
 pub trait FromWelkin: Sized {

@@ -5,7 +5,7 @@ use super::{word::InvalidWord, Char, FromWelkin, ToWelkin, Vector};
 #[derive(Clone, Debug)]
 pub struct WString(pub String);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidString {
     InvalidVector(<Vector<Char> as FromWelkin>::Error),
     InvalidString,

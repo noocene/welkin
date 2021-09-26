@@ -7,6 +7,7 @@ use crate::evaluator::Evaluator;
 use super::FromWelkin;
 
 use derivative::Derivative;
+use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub enum Io<G, T> {
@@ -21,7 +22,7 @@ pub struct IoRequest<G, T> {
     phantom: PhantomData<T>,
 }
 
-#[derive(Derivative)]
+#[derive(Derivative, Clone)]
 #[derivative(Debug(bound = "G::Error: std::fmt::Debug, T::Error: std::fmt::Debug"))]
 pub enum InvalidIo<G: FromWelkin, T: FromWelkin> {
     InvalidIo,
@@ -29,10 +30,11 @@ pub enum InvalidIo<G: FromWelkin, T: FromWelkin> {
     Request(G::Error),
 }
 
-#[derive(Derivative)]
+#[derive(Derivative, Error)]
 #[derivative(Debug(
     bound = "G::Error: std::fmt::Debug, T::Error: std::fmt::Debug, E::Error: std::fmt::Debug"
 ))]
+#[error("fulfillment error")]
 pub enum FulfillmentError<G: FromWelkin, T: FromWelkin, E: Evaluator> {
     Evaluator(E::Error),
     Io(InvalidIo<G, T>),
@@ -64,7 +66,7 @@ impl<G: FromWelkin, T: FromWelkin> IoRequest<G, T> {
 impl<T: FromWelkin, G: FromWelkin> FromWelkin for Io<G, T> {
     type Error = InvalidIo<G, T>;
 
-    fn from_welkin(term: welkin_core::term::Term<String>) -> Result<Self, Self::Error> {
+    fn from_welkin(term: Term<String>) -> Result<Self, Self::Error> {
         let mut term = term;
         loop {
             while let Term::Lambda { body, .. } = term {
