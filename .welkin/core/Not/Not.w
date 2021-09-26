@@ -1,6 +1,6 @@
 Not:
-* ~as P ->
+* ~as P |->
 *
 
-P |>
+P ||>
 P -> Void
