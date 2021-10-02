@@ -1,0 +1,9 @@
+[package]
+name = "welkin-binding"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+macros = { path = "./macros" }
+thiserror = "1.0.26"
+welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }

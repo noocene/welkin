@@ -1,4 +1,3 @@
-use welkin_core::term::Term;
 mod size;
 pub use size::Size;
 mod word;
@@ -22,15 +21,4 @@ pub use any::Any;
 mod bool;
 pub use self::bool::Bool;
 pub mod whelk;
-
-pub trait FromWelkin: Sized {
-    type Error;
-
-    fn from_welkin(term: Term<String>) -> Result<Self, Self::Error>;
-}
-
-pub trait ToWelkin {
-    type Error;
-
-    fn to_welkin(self) -> Result<Term<String>, Self::Error>;
-}
+pub use welkin_binding::{FromWelkin, ToWelkin};
