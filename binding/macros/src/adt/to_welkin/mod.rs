@@ -9,6 +9,8 @@ use syn::Token;
 use syn::WhereClause;
 use synstructure::Structure;
 
+use crate::adt::is_inductive;
+
 pub fn derive(structure: &Structure) -> TokenStream {
     let variant_count = structure.variants().len();
 
@@ -25,7 +27,15 @@ pub fn derive(structure: &Structure) -> TokenStream {
         for binding in variant.bindings() {
             let ident = &binding.binding;
 
-            let error_variant_ident = error_variant_idents.pop().unwrap();
+            let mut error_transform = quote! {};
+
+            if !is_inductive(binding) {
+                let error_variant_ident = error_variant_idents.pop().unwrap();
+
+                error_transform = quote! {
+                    .map_err(#to_welkin_error_ident::#error_variant_ident)
+                };
+            }
 
             stream = quote! {
                 #stream
@@ -33,7 +43,7 @@ pub fn derive(structure: &Structure) -> TokenStream {
                 term = Term::Apply {
                     erased: false,
                     function: Box::new(term),
-                    argument: Box::new(ToWelkin::to_welkin(ToAnalogue::to_analogue(#ident)).map_err(#to_welkin_error_ident::#error_variant_ident)?)
+                    argument: Box::new(ToWelkin::to_welkin(ToAnalogue::to_analogue(#ident))#error_transform?)
                 };
             };
         }
@@ -62,12 +72,15 @@ pub fn derive(structure: &Structure) -> TokenStream {
     for variant in structure.variants() {
         for binding in variant.bindings() {
             let ty = &binding.ast().ty;
-            error_generics.push(parse_quote! {
-                <<#ty as ToAnalogue>::Analogue as ToWelkin>::Error
-            });
-            where_clause.predicates.push(parse_quote! {
-                #ty: ToAnalogue
-            });
+
+            if !is_inductive(binding) {
+                error_generics.push(parse_quote! {
+                    <<#ty as ToAnalogue>::Analogue as ToWelkin>::Error
+                });
+                where_clause.predicates.push(parse_quote! {
+                    #ty: ToAnalogue
+                });
+            }
         }
     }
 

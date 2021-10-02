@@ -1,12 +1,24 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use synstructure::{AddBounds, BindStyle, Structure};
+use syn::{parse_quote, Field};
+use synstructure::{AddBounds, BindStyle, BindingInfo, Structure};
 
 mod analogous;
 mod from_analogue;
 mod from_welkin;
 mod to_analogue;
 mod to_welkin;
+
+pub fn is_inductive(binding: &BindingInfo) -> bool {
+    is_field_inductive(binding.ast())
+}
+
+pub fn is_field_inductive(field: &Field) -> bool {
+    field
+        .attrs
+        .iter()
+        .any(|attr| attr.path == parse_quote!(inductive))
+}
 
 pub fn derive(mut structure: Structure) -> TokenStream {
     structure.add_bounds(AddBounds::None);

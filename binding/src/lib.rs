@@ -42,3 +42,20 @@ pub trait ToAnalogue: Analogous<Analogue = <Self as ToAnalogue>::Analogue> {
 
     fn to_analogue(self) -> <Self as ToAnalogue>::Analogue;
 }
+
+impl<T: Analogous> Analogous for Box<T> {
+    type Analogue = T::Analogue;
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl<T> Sealed for Box<T> {}
+}
+
+pub trait Wrapper: sealed::Sealed {
+    type Inner;
+}
+
+impl<T> Wrapper for Box<T> {
+    type Inner = T;
+}

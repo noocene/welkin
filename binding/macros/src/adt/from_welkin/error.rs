@@ -5,6 +5,8 @@ use quote::{format_ident, quote};
 use syn::{parse_quote, ItemEnum};
 use synstructure::{AddBounds, Structure};
 
+use crate::adt::is_inductive;
+
 pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
     let vis = &structure.ast().vis;
     let ident = &structure.ast().ident;
@@ -20,11 +22,12 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
     let mut binding_names = HashSet::new();
     let mut duplicate_binding_names = HashSet::new();
 
-    for binding in structure
-        .variants()
-        .iter()
-        .flat_map(|variant| variant.bindings().iter())
-    {
+    for binding in structure.variants().iter().flat_map(|variant| {
+        variant
+            .bindings()
+            .iter()
+            .filter(|binding| !is_inductive(binding))
+    }) {
         if let Some((true, binding_name)) = binding.ast().ident.as_ref().map(|ident| {
             let name = format!("{}", ident);
             (binding_names.contains(&name), name)
@@ -40,7 +43,14 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
     for (idx, ((binding_idx, binding), variant)) in structure
         .variants()
         .iter()
-        .flat_map(|variant| variant.bindings().iter().enumerate().zip(repeat(variant)))
+        .flat_map(|variant| {
+            variant
+                .bindings()
+                .iter()
+                .filter(|binding| !is_inductive(binding))
+                .enumerate()
+                .zip(repeat(variant))
+        })
         .enumerate()
     {
         let ident = format_ident!("T{}", idx);

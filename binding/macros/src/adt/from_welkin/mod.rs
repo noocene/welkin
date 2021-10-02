@@ -9,6 +9,9 @@ use syn::Token;
 use syn::WhereClause;
 use synstructure::Structure;
 
+use crate::adt::is_field_inductive;
+use crate::adt::is_inductive;
+
 pub fn derive(structure: &Structure) -> TokenStream {
     let variant_count = structure.variants().len();
 
@@ -24,20 +27,32 @@ pub fn derive(structure: &Structure) -> TokenStream {
     for variant in structure.variants() {
         for binding in variant.bindings() {
             let ty = &binding.ast().ty;
-            error_generics.push(parse_quote! {
-                <<#ty as FromAnalogue>::Analogue as FromWelkin>::Error
-            });
-            where_clause.predicates.push(parse_quote! {
-                #ty: FromAnalogue
-            });
+
+            if !is_inductive(binding) {
+                error_generics.push(parse_quote! {
+                    <<#ty as FromAnalogue>::Analogue as FromWelkin>::Error
+                });
+                where_clause.predicates.push(parse_quote! {
+                    #ty: FromAnalogue
+                });
+            }
         }
     }
 
     for (idx, variant) in structure.variants().iter().rev().enumerate() {
-        let construct = variant.construct(|_, _| {
-            let error_variant_ident = error_variant_idents.pop().unwrap();
+        let construct = variant.construct(|field, _| {
+            let mut error_transform = quote! {};
+
+            if !is_field_inductive(field) {
+                let error_variant_ident = error_variant_idents.pop().unwrap();
+
+                error_transform = quote! {
+                    .map_err(#from_welkin_error_ident::#error_variant_ident)
+                };
+            }
+
             quote! {
-                FromAnalogue::from_analogue(FromWelkin::from_welkin(fields.next().ok_or(#from_welkin_error_ident::InsufficientFields)?).map_err(#from_welkin_error_ident::#error_variant_ident)?)
+                FromAnalogue::from_analogue(FromWelkin::from_welkin(fields.next().ok_or(#from_welkin_error_ident::InsufficientFields)?)#error_transform?)
             }
         });
         from_welkin = quote! {
