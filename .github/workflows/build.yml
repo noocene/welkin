@@ -18,4 +18,7 @@ jobs:
     - name: Build
       run: cargo build
     - name: Run tests
-      run: cargo run .welkin
+      run: |
+        cargo run .welkin
+        cd binding/test
+        cargo run
