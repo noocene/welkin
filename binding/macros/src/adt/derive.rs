@@ -100,7 +100,7 @@ pub fn derive(structure: &Structure) -> TokenStream {
                 }
             } else {
                 quote! {
-                    <<#ty as Analogous>::Analogue as Adt>::DEFINITION.name
+                    AdtConstructor::Other(&<<#ty as Analogous>::Analogue as Adt>::DEFINITION)
                 }
             };
 

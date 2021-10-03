@@ -1,4 +1,4 @@
-use std::marker::PhantomData;
+use std::{collections::HashSet, marker::PhantomData};
 
 use bumpalo::Bump;
 pub use macros::Adt;
@@ -22,13 +22,19 @@ pub trait ToWelkin {
     fn to_welkin(self) -> Result<Term<String>, Self::Error>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum AdtConstructor {
     Inductive,
-    Other(&'static str),
+    Other(&'static AdtDefinition),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub struct ConcreteType {
+    constructor: AdtConstructor,
+    params: &'static [Type],
+}
+
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 
 pub enum Type {
     Parameter(usize),
@@ -58,9 +64,9 @@ impl Type {
                         ))),
                         bump,
                     ),
-                    AdtConstructor::Other(name) => BumpBox::new_in(
+                    AdtConstructor::Other(definition) => BumpBox::new_in(
                         parser::Term::Reference(Path(BumpVec::unary_in(
-                            Ident::from_str(name, &bump),
+                            Ident::from_str(definition.name, &bump),
                             &bump,
                         ))),
                         bump,
@@ -75,11 +81,13 @@ impl Type {
     }
 }
 
+#[derive(Hash, PartialEq, Eq, Debug)]
 pub struct AdtVariant {
     pub fields: &'static [Type],
     pub name: &'static str,
 }
 
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub struct AdtDefinition {
     pub variants: &'static [AdtVariant],
     pub name: &'static str,
@@ -110,7 +118,7 @@ where
     T::Analogue: Adt,
 {
     const TYPE: Type = Type::Data {
-        constructor: AdtConstructor::Other(<<T as Analogous>::Analogue as Adt>::DEFINITION.name),
+        constructor: AdtConstructor::Other(&<<T as Analogous>::Analogue as Adt>::DEFINITION),
         params: <<T as Analogous>::Analogue as Adt>::PARAMS,
     };
 }
@@ -195,4 +203,84 @@ pub trait Wrapper: sealed::Sealed {
 
 impl<T> Wrapper for Box<T> {
     type Inner = T;
+}
+
+trait ResolveParam {
+    fn resolve(&self, idx: usize) -> (Type, Box<dyn ResolveParam>);
+}
+
+impl<T: ResolveParam + ?Sized> ResolveParam for Box<T> {
+    fn resolve(&self, idx: usize) -> (Type, Box<dyn ResolveParam>) {
+        T::resolve(&**self, idx)
+    }
+}
+
+struct SliceResolver {
+    params: &'static [Type],
+}
+
+impl ResolveParam for SliceResolver {
+    fn resolve(&self, idx: usize) -> (Type, Box<dyn ResolveParam>) {
+        (
+            self.params[idx].clone(),
+            Box::new(SliceResolver {
+                params: match &self.params[idx] {
+                    Type::Parameter(_) => todo!(),
+                    Type::Data { params, .. } => params,
+                },
+            }),
+        )
+    }
+}
+
+fn resolve_dependencies(
+    ty: &Type,
+    register: &mut impl FnMut(&'static AdtDefinition),
+    resolve_param: &impl ResolveParam,
+) {
+    match ty {
+        Type::Parameter(idx) => {
+            let (ty, resolver) = &resolve_param.resolve(*idx);
+            resolve_dependencies(ty, &mut *register, resolver)
+        }
+        Type::Data {
+            constructor,
+            params,
+        } => {
+            if let AdtConstructor::Other(constructor) = constructor {
+                register(constructor);
+                for variant in constructor.variants {
+                    for field in variant.fields {
+                        resolve_dependencies(field, &mut *register, &*resolve_param)
+                    }
+                }
+            }
+            for param in *params {
+                resolve_dependencies(param, &mut *register, &*resolve_param)
+            }
+        }
+    }
+}
+
+pub fn generate_all<A: Adt>() -> Vec<Definition> {
+    let mut dependencies = HashSet::new();
+
+    dependencies.insert(&A::DEFINITION);
+
+    for variant in A::DEFINITION.variants {
+        for field in variant.fields {
+            resolve_dependencies(
+                field,
+                &mut |definition| {
+                    dependencies.insert(definition);
+                },
+                &SliceResolver { params: A::PARAMS },
+            )
+        }
+    }
+
+    dependencies
+        .into_iter()
+        .flat_map(|a| a.clone().generate().into_iter())
+        .collect()
 }

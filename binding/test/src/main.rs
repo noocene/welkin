@@ -1,4 +1,4 @@
-use welkin_binding::{Adt, FromWelkin, ToWelkin};
+use welkin_binding::{generate_all, Adt, FromWelkin, ToWelkin};
 
 #[derive(Debug, Adt, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
@@ -63,5 +63,5 @@ fn main() {
         vector
     );
 
-    println!("{:?}", Vector::<Bool>::DEFINITION.generate())
+    println!("{:?}", generate_all::<Vector<Pair<Bool, Vector<Bool>>>>())
 }
