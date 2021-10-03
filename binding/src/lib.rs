@@ -327,3 +327,30 @@ pub fn generate_all<A: Adt>() -> Definitions {
             .collect(),
     }
 }
+
+pub fn concrete_type<A: Adt>() -> Term<AbsolutePath> {
+    fn helper(definition: &AdtDefinition, params: &[Type]) -> Term<AbsolutePath> {
+        let mut term = Term::Reference(AbsolutePath(vec![definition.name.to_owned()]));
+
+        for param in params.iter() {
+            term = Term::Apply {
+                erased: true,
+                function: Box::new(term),
+                argument: Box::new(match param {
+                    Type::Parameter(_) => panic!(),
+                    Type::Data {
+                        constructor,
+                        params,
+                    } => match constructor {
+                        AdtConstructor::Inductive => panic!(),
+                        AdtConstructor::Other(definition) => helper(definition, params),
+                    },
+                }),
+            };
+        }
+
+        term
+    }
+
+    helper(&A::DEFINITION, A::PARAMS)
+}

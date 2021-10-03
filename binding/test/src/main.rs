@@ -1,4 +1,4 @@
-use welkin_binding::{generate_all, Adt, FromWelkin, ToWelkin};
+use welkin_binding::{concrete_type, generate_all, Adt, FromWelkin, ToWelkin};
 
 #[derive(Debug, Adt, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
@@ -63,7 +63,10 @@ fn main() {
         vector
     );
 
-    let definitions = generate_all::<Vector<Pair<Bool, Vector<Bool>>>>();
+    type Test = Vector<Pair<Bool, Vector<Bool>>>;
 
-    println!("{}", definitions);
+    let definitions = generate_all::<Test>();
+
+    println!("{}\n", definitions);
+    println!("{:?}", concrete_type::<Test>());
 }
