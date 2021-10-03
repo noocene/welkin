@@ -7,3 +7,5 @@ edition = "2018"
 macros = { path = "./macros" }
 thiserror = "1.0.26"
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
+welkin = { path = ".." }
+bumpalo = "3.7.0"

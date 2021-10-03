@@ -9,6 +9,8 @@ mod from_welkin;
 mod to_analogue;
 mod to_welkin;
 
+mod derive;
+
 pub fn is_inductive(binding: &BindingInfo) -> bool {
     is_field_inductive(binding.ast())
 }
@@ -32,6 +34,8 @@ pub fn derive(mut structure: Structure) -> TokenStream {
     let to_welkin_impl = to_welkin::derive(&structure);
     let from_welkin_impl = from_welkin::derive(&structure);
 
+    let adt_impl = derive::derive(&structure);
+
     quote! {
         #analogous_impl
 
@@ -40,5 +44,7 @@ pub fn derive(mut structure: Structure) -> TokenStream {
 
         #to_welkin_impl
         #from_welkin_impl
+
+        #adt_impl
     }
 }

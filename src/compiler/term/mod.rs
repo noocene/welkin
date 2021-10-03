@@ -62,22 +62,26 @@ impl<'a> Compile<AbsolutePath> for Term<'a> {
                 arguments,
                 erased,
             } => {
-                let function = Box::new(function.compile(resolver.proceed()));
-                let mut arguments = arguments.into_iter();
-                let argument = Box::new(arguments.next().unwrap().compile(resolver.proceed()));
-                let mut term = CoreTerm::Apply {
-                    function,
-                    argument,
-                    erased: erased,
-                };
-                while let Some(argument) = arguments.next() {
-                    term = CoreTerm::Apply {
-                        function: Box::new(term),
+                if arguments.len() == 0 {
+                    function.compile(resolver.proceed())
+                } else {
+                    let function = Box::new(function.compile(resolver.proceed()));
+                    let mut arguments = arguments.into_iter();
+                    let argument = Box::new(arguments.next().unwrap().compile(resolver.proceed()));
+                    let mut term = CoreTerm::Apply {
+                        function,
+                        argument,
                         erased: erased,
-                        argument: Box::new(argument.compile(resolver.proceed())),
                     };
+                    while let Some(argument) = arguments.next() {
+                        term = CoreTerm::Apply {
+                            function: Box::new(term),
+                            erased: erased,
+                            argument: Box::new(argument.compile(resolver.proceed())),
+                        };
+                    }
+                    term
                 }
-                term
             }
             Term::Duplicate {
                 binding,

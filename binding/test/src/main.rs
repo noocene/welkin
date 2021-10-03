@@ -62,4 +62,6 @@ fn main() {
         Vector::<Bool>::from_welkin(vector.clone().to_welkin().unwrap()).unwrap(),
         vector
     );
+
+    println!("{:?}", Vector::<Bool>::DEFINITION.generate())
 }

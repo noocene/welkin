@@ -28,6 +28,5 @@ web-sys = { version = "0.3.51", features = [
     "KeyboardEvent",
     "HtmlInputElement"
   ] }
-welkin = { path = "../" }
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
 welkin-binding = { path = "../binding" }

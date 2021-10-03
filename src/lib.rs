@@ -6,6 +6,8 @@ use welkin_core::term::{
     Primitives, Term,
 };
 
+pub use parser;
+
 pub mod hash;
 use hash::{Hash, ReferenceHash};
 
