@@ -63,5 +63,7 @@ fn main() {
         vector
     );
 
-    println!("{:?}", generate_all::<Vector<Pair<Bool, Vector<Bool>>>>())
+    let definitions = generate_all::<Vector<Pair<Bool, Vector<Bool>>>>();
+
+    println!("{}", definitions);
 }

@@ -67,7 +67,11 @@ pub fn derive(structure: &Structure) -> TokenStream {
     let mut variants: Punctuated<Expr, Token![,]> = parse_quote!();
 
     for variant in structure.variants() {
-        let name = format!("{}", variant.ast().ident);
+        let mut name = format!("{}", variant.ast().ident);
+
+        if name.starts_with("r#") {
+            name = name.chars().skip(2).collect();
+        }
 
         let mut fields: Punctuated<Expr, Token![,]> = parse_quote!();
 

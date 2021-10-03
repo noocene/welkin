@@ -1,4 +1,8 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::{
+    collections::HashSet,
+    fmt::{self, Display, Formatter},
+    marker::PhantomData,
+};
 
 use bumpalo::Bump;
 pub use macros::Adt;
@@ -101,6 +105,40 @@ pub struct Definition {
     pub term: Term<AbsolutePath>,
 }
 
+#[derive(Debug)]
+pub struct Definitions {
+    pub definitions: Vec<Definition>,
+}
+
+impl Display for Definitions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut write_definition = |definition: &Definition, pad: bool| -> fmt::Result {
+            write!(
+                f,
+                "{}{:?}:\n{:?}\n=\n{:?}",
+                if pad { "\n\n" } else { "" },
+                definition.path,
+                definition.ty,
+                definition.term,
+            )?;
+
+            Ok(())
+        };
+
+        let mut definitions = self.definitions.iter();
+
+        if let Some(definition) = definitions.next() {
+            write_definition(definition, false)?;
+
+            for definition in definitions {
+                write_definition(definition, true)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 mod typed_sealed {
     use crate::{Adt, Analogous, Dummy};
 
@@ -130,7 +168,7 @@ impl<const INDEX: usize> Typed for Dummy<INDEX> {
 }
 
 impl AdtDefinition {
-    pub fn generate(self) -> Vec<Definition> {
+    pub fn generate(self) -> Definitions {
         let bump = Bump::new();
 
         let data = Data {
@@ -160,10 +198,13 @@ impl AdtDefinition {
             ident: Ident::from_str(self.name, &bump),
         };
 
-        data.compile(LocalResolver::new())
-            .into_iter()
-            .map(|(path, ty, term)| Definition { path, ty, term })
-            .collect()
+        Definitions {
+            definitions: data
+                .compile(LocalResolver::new())
+                .into_iter()
+                .map(|(path, ty, term)| Definition { path, ty, term })
+                .collect(),
+        }
     }
 }
 
@@ -262,7 +303,7 @@ fn resolve_dependencies(
     }
 }
 
-pub fn generate_all<A: Adt>() -> Vec<Definition> {
+pub fn generate_all<A: Adt>() -> Definitions {
     let mut dependencies = HashSet::new();
 
     dependencies.insert(&A::DEFINITION);
@@ -279,8 +320,10 @@ pub fn generate_all<A: Adt>() -> Vec<Definition> {
         }
     }
 
-    dependencies
-        .into_iter()
-        .flat_map(|a| a.clone().generate().into_iter())
-        .collect()
+    Definitions {
+        definitions: dependencies
+            .into_iter()
+            .flat_map(|a| a.clone().generate().definitions.into_iter())
+            .collect(),
+    }
 }
