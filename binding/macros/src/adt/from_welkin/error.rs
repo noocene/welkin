@@ -15,7 +15,7 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
 
     let mut from_welkin_error: ItemEnum = parse_quote! {
         #[allow(non_camel_case_types)]
-        #[derive(Debug, Error)]
+        #[derive(Debug, Error, Clone)]
         #vis enum #from_welkin_error_ident {}
     };
 

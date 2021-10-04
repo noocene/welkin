@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_quote, Field};
@@ -22,7 +24,7 @@ pub fn is_field_inductive(field: &Field) -> bool {
         .any(|attr| attr.path == parse_quote!(inductive))
 }
 
-pub fn derive(mut structure: Structure) -> TokenStream {
+pub fn derive(mut structure: Structure) -> Result<TokenStream, Box<dyn Error>> {
     structure.add_bounds(AddBounds::None);
     structure.bind_with(|_| BindStyle::Move);
 
@@ -36,7 +38,7 @@ pub fn derive(mut structure: Structure) -> TokenStream {
 
     let adt_impl = derive::derive(&structure);
 
-    quote! {
+    Ok(quote! {
         #analogous_impl
 
         #to_analogue_impl
@@ -46,5 +48,6 @@ pub fn derive(mut structure: Structure) -> TokenStream {
         #from_welkin_impl
 
         #adt_impl
-    }
+
+    })
 }

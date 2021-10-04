@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::read_to_string,
+    io::{Cursor, Write},
     path::Component,
     process::exit,
     time::SystemTime,
@@ -398,11 +399,45 @@ fn main() {
             net.reduce_all();
             let main: Term<String> = net.read_term(welkin_core::net::Index(0));
 
-            if let Some(a) = std::env::args().nth(2) {
-                if a == "--bundle" {
-                    std::fs::write("./whelk/welkin/term", bincode::serialize(&main).unwrap())
+            let mut args = std::env::args().skip(2);
+
+            while let Some(a) = args.next() {
+                match a.as_str() {
+                    "--bundle" => {
+                        std::fs::write(
+                            // "./whelk/welkin/term"
+                            args.next().expect("expected path for bundle export"),
+                            bincode::serialize(&main).unwrap(),
+                        )
                         .unwrap();
-                    return;
+                        return;
+                    }
+                    "--export-defs" => {
+                        let mut buffer = Cursor::new(Vec::new());
+
+                        for def in &defs {
+                            write!(
+                                buffer,
+                                "{:?}:\n",
+                                AbsolutePath((def.0).0.iter().map(|a| a.to_string()).collect(),)
+                            )
+                            .unwrap();
+
+                            write!(buffer, "{:?}\n=\n", (def.1).0).unwrap();
+
+                            write!(buffer, "{:?}\n\n", (def.1).1).unwrap();
+                        }
+
+                        let buffer = String::from_utf8_lossy(&buffer.into_inner())
+                            .as_ref()
+                            .trim()
+                            .to_owned();
+
+                        std::fs::write(args.next().expect("expected path for defs export"), buffer)
+                            .unwrap();
+                        return;
+                    }
+                    _ => {}
                 }
             }
 

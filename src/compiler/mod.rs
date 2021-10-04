@@ -87,9 +87,16 @@ impl<
 
 impl<'a> Show for BumpPath<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in &self.0 {
-            write!(f, "::{}", item)?;
+        let mut items = self.0.iter();
+
+        if let Some(item) = items.next() {
+            write!(f, "{}", item)?;
+
+            for item in items {
+                write!(f, "::{}", item)?;
+            }
         }
+
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-use welkin_binding::{concrete_type, generate_all, Adt, FromWelkin, ToWelkin};
+use welkin_binding::{check_all_in, concrete_type, Adt, Definitions, FromWelkin, ToWelkin};
 
 #[derive(Debug, Adt, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
@@ -65,8 +65,11 @@ fn main() {
 
     type Test = Vector<Pair<Bool, Vector<Bool>>>;
 
-    let definitions = generate_all::<Test>();
-
-    println!("{}\n", definitions);
     println!("{:?}", concrete_type::<Test>());
+
+    let defs = std::fs::read_to_string("../../whelk/welkin/defs.mwc").unwrap();
+
+    let defs: Definitions = defs.parse().unwrap();
+
+    check_all_in::<Pair<Unit, Bool>>(&defs).unwrap();
 }

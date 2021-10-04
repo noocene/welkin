@@ -1,0 +1,12 @@
+[package]
+name = "welkin-binding-lib"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+thiserror = "1.0.26"
+welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
+welkin = { path = "../.." }
+bumpalo = "3.7.0"
+const_fn_assert = "0.1.2"
+combine = "4.6.0"

@@ -14,7 +14,7 @@ pub fn derive(structure: &Structure) -> (ItemEnum, Ident, Vec<Ident>) {
 
     let mut to_welkin_error: ItemEnum = parse_quote! {
         #[allow(non_camel_case_types)]
-        #[derive(Debug, Error)]
+        #[derive(Debug, Error, Clone)]
         #vis enum #to_welkin_error_ident {}
     };
 

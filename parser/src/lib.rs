@@ -1,16 +1,23 @@
 use combine::{
     choice, optional, parser, parser::char::spaces, token as bare_token, value, Parser, Stream,
 };
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use welkin_core::term::Show;
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AbsolutePath(pub Vec<String>);
 
 impl Debug for AbsolutePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in &self.0 {
-            write!(f, "::{}", item)?;
+        let mut items = self.0.iter();
+
+        if let Some(item) = items.next() {
+            write!(f, "{}", item)?;
+
+            for item in items {
+                write!(f, "::{}", item)?;
+            }
         }
         Ok(())
     }
@@ -18,10 +25,7 @@ impl Debug for AbsolutePath {
 
 impl Show for AbsolutePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for item in &self.0 {
-            write!(f, "::{}", item)?;
-        }
-        Ok(())
+        <AbsolutePath as Debug>::fmt(self, f)
     }
 }
 
