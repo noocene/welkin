@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    convert::TryInto,
     fmt::{self, Display, Formatter},
     marker::PhantomData,
     str::FromStr,
@@ -19,9 +20,10 @@ pub use thiserror::Error;
 use welkin::{
     compiler::{item::Compile, LocalResolver},
     parser::{self, AbsolutePath, BumpBox, BumpVec, Data, Ident, Path, Variant},
+    SerializableData,
 };
 pub use welkin_core;
-use welkin_core::term::{MapCache, NormalizationError, Referent, Term};
+use welkin_core::term::{Referent, Term};
 
 pub trait FromWelkin: Sized {
     type Error;
@@ -229,10 +231,8 @@ impl<const INDEX: usize> Typed for Dummy<INDEX> {
 }
 
 impl AdtDefinition {
-    pub fn generate(self) -> Definitions {
-        let bump = Bump::new();
-
-        let data = Data {
+    fn generate_data(self, bump: &'_ Bump) -> parser::Data<'_> {
+        Data {
             variants: BumpVec::from_iterator(
                 self.variants.iter().map(|variant| Variant {
                     ident: Ident::from_str(variant.name, &bump),
@@ -257,7 +257,13 @@ impl AdtDefinition {
             ),
             indices: BumpVec::new_in(&bump),
             ident: Ident::from_str(self.name, &bump),
-        };
+        }
+    }
+
+    pub fn generate(self) -> Definitions {
+        let bump = Bump::new();
+
+        let data = self.generate_data(&bump);
 
         Definitions {
             definitions: data
@@ -364,7 +370,30 @@ fn resolve_dependencies(
     }
 }
 
-pub fn generate_all<A: Adt>() -> Definitions {
+fn generate_all_data<'a, A: Adt>(bump: &'a Bump) -> Vec<Data<'a>> {
+    let mut dependencies = HashSet::new();
+
+    dependencies.insert(&A::DEFINITION);
+
+    for variant in A::DEFINITION.variants {
+        for field in variant.fields {
+            resolve_dependencies(
+                field,
+                &mut |definition| {
+                    dependencies.insert(definition);
+                },
+                &SliceResolver { params: A::PARAMS },
+            )
+        }
+    }
+
+    dependencies
+        .into_iter()
+        .map(|a| a.clone().generate_data(&bump))
+        .collect()
+}
+
+fn generate_all<A: Adt>() -> Definitions {
     let mut dependencies = HashSet::new();
 
     dependencies.insert(&A::DEFINITION);
@@ -418,18 +447,18 @@ pub fn concrete_type<A: Adt>() -> Term<AbsolutePath> {
 
 #[derive(Debug, Error)]
 pub enum CheckError {
-    #[error("normalization error: {0:?}")]
-    Normalization(NormalizationError),
     #[error("definition {0:?} is missing in welkin source")]
     Missing(AbsolutePath),
     #[error("definition {0:?} does not match declaration in welkin source")]
     Mismatch(AbsolutePath),
 }
 
-impl From<NormalizationError> for CheckError {
-    fn from(e: NormalizationError) -> Self {
-        CheckError::Normalization(e)
-    }
+#[derive(Debug, Error)]
+pub enum CanonicalEquivalenceError {
+    #[error("check error: {0}")]
+    Check(#[from] CheckError),
+    #[error("bincode error: {0}")]
+    Bincode(#[from] Box<bincode::ErrorKind>),
 }
 
 #[doc(hidden)]
@@ -440,27 +469,21 @@ pub fn check_in_helper(ty_defs: &Definitions, against: &Definitions) -> Result<(
         .map(|a| (a.path.clone(), (a.ty.clone(), a.term.clone())))
         .collect();
 
-    let mut cache = MapCache::new();
-
     for def in &ty_defs.definitions {
-        if !def.ty.equivalent(
+        if !def.ty.equals(
             &defs
                 .get(&def.path)
                 .ok_or(CheckError::Missing(def.path.clone()))?
                 .0,
-            &defs,
-            &mut cache,
-        )? {
+        ) {
             return Err(CheckError::Mismatch(def.path.clone()));
         }
-        if !def.term.equivalent(
+        if !def.term.equals(
             &defs
                 .get(&def.path)
                 .ok_or(CheckError::Missing(def.path.clone()))?
                 .1,
-            &defs,
-            &mut cache,
-        )? {
+        ) {
             return Err(CheckError::Mismatch(def.path.clone()));
         }
     }
@@ -474,4 +497,185 @@ pub fn check_all_in<A: Adt>(against: &Definitions) -> Result<(), CheckError> {
 
 pub fn check_in<A: Adt>(against: &Definitions) -> Result<(), CheckError> {
     check_in_helper(&A::DEFINITION.generate(), against)
+}
+
+fn canonically_equivalent_fields(
+    rust: &Term<AbsolutePath>,
+    welkin: &Term<AbsolutePath>,
+    definitions: &[SerializableData],
+) -> bool {
+    match (rust, welkin) {
+        (Term::Variable(a), Term::Variable(b)) => a == b,
+        (
+            Term::Lambda { body, erased },
+            Term::Lambda {
+                body: b_body,
+                erased: b_erased,
+            },
+        ) => canonically_equivalent_fields(body, b_body, definitions) && erased == b_erased,
+        (
+            Term::Apply {
+                function,
+                argument,
+                erased,
+            },
+            Term::Apply {
+                function: b_function,
+                argument: b_argument,
+                erased: b_erased,
+            },
+        ) => {
+            let mut arguments = vec![&**b_argument];
+            let mut func = &**b_function;
+
+            while let Term::Apply {
+                argument,
+                function,
+                erased: true,
+            } = func
+            {
+                arguments.push(&**argument);
+                func = &**function;
+            }
+
+            if let Term::Reference(path) = func {
+                if let Some(segment) = path.0.first() {
+                    if path.0.len() == 1 {
+                        if let Some(data) = definitions.iter().find(|data| &data.ident == segment) {
+                            arguments.reverse();
+                            arguments.truncate(arguments.len() - data.indices);
+
+                            let mut term = func.clone();
+
+                            for argument in arguments {
+                                term = Term::Apply {
+                                    function: Box::new(term),
+                                    argument: Box::new(argument.clone()),
+                                    erased: true,
+                                };
+                            }
+
+                            return rust.equals(&term);
+                        }
+                    }
+                }
+            }
+
+            canonically_equivalent_fields(function, b_function, definitions)
+                && canonically_equivalent_fields(argument, b_argument, definitions)
+                && erased == b_erased
+        }
+        (Term::Put(a), Term::Put(b)) => canonically_equivalent_fields(a, b, definitions),
+        (
+            Term::Duplicate { expression, body },
+            Term::Duplicate {
+                expression: b_expression,
+                body: b_body,
+            },
+        ) => {
+            canonically_equivalent_fields(expression, b_expression, definitions)
+                && canonically_equivalent_fields(body, b_body, definitions)
+        }
+        (Term::Reference(a), Term::Reference(b)) => a == b,
+        (Term::Primitive(a), Term::Primitive(b)) => a == b,
+        (Term::Universe, Term::Universe) => true,
+        (
+            Term::Function {
+                argument_type,
+                return_type,
+                erased,
+            },
+            Term::Function {
+                argument_type: b_argument_type,
+                return_type: b_return_type,
+                erased: b_erased,
+            },
+        ) => {
+            canonically_equivalent_fields(argument_type, b_argument_type, definitions)
+                && canonically_equivalent_fields(return_type, b_return_type, definitions)
+                && erased == b_erased
+        }
+        (
+            Term::Annotation {
+                checked,
+                expression,
+                ty,
+            },
+            Term::Annotation {
+                checked: b_checked,
+                expression: b_expression,
+                ty: b_ty,
+            },
+        ) => {
+            canonically_equivalent_fields(expression, b_expression, definitions)
+                && canonically_equivalent_fields(ty, b_ty, definitions)
+                && checked == b_checked
+        }
+        (Term::Wrap(a), Term::Wrap(b)) => canonically_equivalent_fields(a, b, definitions),
+        _ => false,
+    }
+}
+
+fn canonically_equivalent_data(
+    rust: &SerializableData,
+    welkin: &SerializableData,
+    definitions: &[SerializableData],
+) -> bool {
+    rust.ident == welkin.ident
+        && rust.type_arguments == welkin.type_arguments
+        && rust.variants.keys().collect::<HashSet<_>>()
+            == welkin.variants.keys().collect::<HashSet<_>>()
+        && rust
+            .variants
+            .iter()
+            .map(|a| (a.1, welkin.variants.get(a.0).unwrap()))
+            .all(|(rust, welkin)| {
+                rust.inhabitants.len() == welkin.inhabitants.len()
+                    && rust.inhabitants.iter().zip(welkin.inhabitants.iter()).all(
+                        |((_, rust), (_, welkin))| {
+                            canonically_equivalent_fields(rust, welkin, definitions)
+                        },
+                    )
+            })
+}
+
+fn canonically_equivalent_in_helper(
+    data: Vec<SerializableData>,
+    against: &[SerializableData],
+) -> Result<(), CheckError> {
+    for definition in data {
+        if let Some(other) = against.iter().find(|data| data.ident == definition.ident) {
+            if !canonically_equivalent_data(&definition, other, against) {
+                println!("{:?} != {:?}", definition, other);
+                return Err(CheckError::Mismatch(AbsolutePath(vec![definition.ident])));
+            }
+        } else {
+            return Err(CheckError::Missing(AbsolutePath(vec![definition.ident])));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn canonically_equivalent_in<A: Adt>(against: &[u8]) -> Result<(), CanonicalEquivalenceError> {
+    let bump = Bump::new();
+
+    Ok(canonically_equivalent_in_helper(
+        vec![A::DEFINITION.generate_data(&bump).try_into().unwrap()],
+        &bincode::deserialize::<Vec<_>>(against)?,
+    )?)
+}
+
+pub fn canonically_equivalent_all_in<A: Adt>(
+    against: &[u8],
+) -> Result<(), CanonicalEquivalenceError> {
+    let bump = Bump::new();
+
+    Ok(canonically_equivalent_in_helper(
+        generate_all_data::<A>(&bump)
+            .into_iter()
+            .map(|a| a.try_into().unwrap())
+            .collect(),
+        &bincode::deserialize::<Vec<_>>(against)?,
+    )?)
 }

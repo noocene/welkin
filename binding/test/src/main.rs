@@ -1,4 +1,4 @@
-use welkin_binding::{check_all_in, concrete_type, Adt, Definitions, FromWelkin, ToWelkin};
+use welkin_binding::{canonically_equivalent_all_in, concrete_type, Adt, FromWelkin, ToWelkin};
 
 #[derive(Debug, Adt, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
@@ -67,9 +67,7 @@ fn main() {
 
     println!("{:?}", concrete_type::<Test>());
 
-    let defs = std::fs::read_to_string("../../whelk/welkin/defs.mwc").unwrap();
+    let defs = std::fs::read("../../whelk/welkin/defs").unwrap();
 
-    let defs: Definitions = defs.parse().unwrap();
-
-    check_all_in::<Pair<Unit, Bool>>(&defs).unwrap();
+    canonically_equivalent_all_in::<Test>(&defs).unwrap();
 }

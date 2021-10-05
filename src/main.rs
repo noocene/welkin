@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
+    convert::TryInto,
     fs::read_to_string,
-    io::{Cursor, Write},
     path::Component,
     process::exit,
     time::SystemTime,
@@ -10,7 +10,7 @@ use std::{
 use combine::{stream::position, EasyParser};
 use welkin::{
     compiler::{item::Compile as _, term::Compile as _, BumpPath, LocalResolver, Resolve},
-    Bumpalo,
+    Bumpalo, SerializableData,
 };
 
 use parser::{
@@ -185,6 +185,8 @@ fn main() {
         HashSet::new()
     };
 
+    let mut data_declarations = vec![];
+
     for entry in WalkDir::new(std::env::args().skip(1).next().unwrap_or_else(|| {
         eprintln!("USAGE:\nwelkin <SOURCE_DIR>");
         exit(1)
@@ -264,6 +266,9 @@ fn main() {
                 } else if let Item::Block(block) = item {
                     #[allow(irrefutable_let_patterns)]
                     if let BlockItem::Data(data) = block {
+                        if let Ok(data) = TryInto::<SerializableData>::try_into(data.clone()) {
+                            data_declarations.push(data);
+                        }
                         let compiled = data.compile(LocalResolver::new());
                         if names.contains(&hr_name) {
                             for (_, ty, term) in &compiled {
@@ -413,28 +418,11 @@ fn main() {
                         return;
                     }
                     "--export-defs" => {
-                        let mut buffer = Cursor::new(Vec::new());
-
-                        for def in &defs {
-                            write!(
-                                buffer,
-                                "{:?}:\n",
-                                AbsolutePath((def.0).0.iter().map(|a| a.to_string()).collect(),)
-                            )
-                            .unwrap();
-
-                            write!(buffer, "{:?}\n=\n", (def.1).0).unwrap();
-
-                            write!(buffer, "{:?}\n\n", (def.1).1).unwrap();
-                        }
-
-                        let buffer = String::from_utf8_lossy(&buffer.into_inner())
-                            .as_ref()
-                            .trim()
-                            .to_owned();
-
-                        std::fs::write(args.next().expect("expected path for defs export"), buffer)
-                            .unwrap();
+                        std::fs::write(
+                            args.next().expect("expected path for defs export"),
+                            bincode::serialize(&data_declarations).unwrap(),
+                        )
+                        .unwrap();
                         return;
                     }
                     _ => {}

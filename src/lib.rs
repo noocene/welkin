@@ -1,6 +1,13 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    collections::HashMap,
+    convert::TryFrom,
+    ops::{Deref, DerefMut},
+};
 
 use bumpalo::Bump;
+use compiler::{term::Compile, LocalResolver};
+use parser::{AbsolutePath, Data};
+use serde::{Deserialize, Serialize};
 use welkin_core::term::{
     alloc::{Allocator, IntoInner, Reallocate, System},
     Primitives, Term,
@@ -519,5 +526,104 @@ impl<'a, 'b, T: 'a + 'b, U: Primitives<T> + 'a + 'b> Reallocate<T, U, Bumpalo<'b
                 <Self as Reallocate<T, U, _>>::reallocating_copy(self, &*term),
             )),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableVariant {
+    pub inhabitants: Vec<(String, welkin_core::term::Term<AbsolutePath>)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableData {
+    pub variants: HashMap<String, SerializableVariant>,
+    pub ident: String,
+    pub type_arguments: usize,
+    pub indices: usize,
+    pub skipped_type_arguments: Vec<usize>,
+}
+
+#[derive(Debug)]
+pub struct NotCompatible;
+
+impl<'a> TryFrom<Data<'a>> for SerializableData {
+    type Error = NotCompatible;
+
+    fn try_from(data: Data<'a>) -> Result<Self, Self::Error> {
+        let type_arguments = data.type_arguments;
+
+        let mut skipped_type_arguments = vec![];
+
+        let type_arguments = type_arguments
+            .into_iter()
+            .enumerate()
+            .filter_map(
+                |(index, (ident, ty, erased))| -> Option<Result<_, NotCompatible>> {
+                    if !erased {
+                        Some(Err(NotCompatible))
+                    } else {
+                        if let Some(parser::Term::Universe) = ty {
+                            Some(Ok(ident.0.data.as_str().to_owned()))
+                        } else if ty.is_none() {
+                            Some(Ok(ident.0.data.as_str().to_owned()))
+                        } else {
+                            skipped_type_arguments.push(index);
+                            None
+                        }
+                    }
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(SerializableData {
+            skipped_type_arguments,
+            indices: data.indices.len(),
+            variants: data
+                .variants
+                .into_iter()
+                .map(|variant| {
+                    (
+                        variant.ident.0.data.as_str().to_owned(),
+                        SerializableVariant {
+                            inhabitants: variant
+                                .inhabitants
+                                .into_iter()
+                                .filter_map(|(ident, ty, erased)| {
+                                    if erased {
+                                        None
+                                    } else {
+                                        Some((
+                                            ident.0.data.to_string(),
+                                            ty.compile(LocalResolver::new()).map_reference(
+                                                |reference| {
+                                                    if let Some(segment) = reference.0.first() {
+                                                        if reference.0.len() == 1 {
+                                                            if let Some(position) = type_arguments
+                                                                .iter()
+                                                                .position(|ident| ident == segment)
+                                                            {
+                                                                return Term::Reference(
+                                                                    AbsolutePath(vec![format!(
+                                                                        "T{}",
+                                                                        position
+                                                                    )]),
+                                                                );
+                                                            }
+                                                        }
+                                                    };
+                                                    Term::Reference(reference)
+                                                },
+                                            ),
+                                        ))
+                                    }
+                                })
+                                .collect(),
+                        },
+                    )
+                })
+                .collect(),
+            ident: data.ident.0.data.as_str().to_owned(),
+            type_arguments: type_arguments.len(),
+        })
     }
 }
