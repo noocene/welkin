@@ -22,7 +22,7 @@ bind! {
         Vector,
         Word,
         Char,
-        String,
+        String
     )]
     pub mod w {}
 }

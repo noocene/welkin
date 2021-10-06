@@ -136,6 +136,12 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                 }
 
                 if !includes.is_empty() {
+                    if let Some(include) = includes
+                        .iter()
+                        .find(|ident| !defs.iter().any(|def| &def.ident == *ident))
+                    {
+                        return Err(anyhow!("unknown type {}", include));
+                    }
                     defs.retain(|def| includes.contains(&def.ident));
                 }
 
