@@ -1,4 +1,5 @@
 use quote::quote;
+mod bind;
 use synstructure::decl_derive;
 mod adt;
 
@@ -18,4 +19,9 @@ fn adt_derive(item: synstructure::Structure) -> proc_macro2::TokenStream {
             };
         }
     })
+}
+
+#[proc_macro]
+pub fn bind(mod_declaration: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    bind::bind(mod_declaration.into()).into()
 }

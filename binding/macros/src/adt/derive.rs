@@ -80,10 +80,16 @@ pub fn derive(structure: &Structure) -> TokenStream {
                 let path = &path.path;
                 if let Some(segment) = path.segments.first() {
                     if path.segments.len() == 1 {
-                        if let Some(idx) = param_names
-                            .iter()
-                            .position(|item| item == &format!("{}", segment.ident))
-                        {
+                        if let Some(idx) = param_names.iter().position(|item| {
+                            item == &{
+                                let ident = &segment.ident;
+                                let mut s = quote!(#ident).to_string();
+                                if s.starts_with("r#") {
+                                    s = s.chars().skip(2).collect();
+                                }
+                                s
+                            }
+                        }) {
                             fields.push(parse_quote! {
                                 Type::Parameter(#idx)
                             });

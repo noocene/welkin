@@ -7,8 +7,10 @@ edition = "2018"
 proc-macro = true
 
 [dependencies]
+anyhow = "1.0.41"
 proc-macro2 = "1.0"
 quote = "1.0.9"
+regex = "1.5.4"
 syn = { version = "1.0.73", features = ["full"] }
 synstructure = "0.12.4"
 welkin-binding-lib = { path = "../lib" }

@@ -16,12 +16,15 @@ use combine::{
     },
     sep_by1, token, Parser, Stream,
 };
+#[doc(hidden)]
 pub use thiserror::Error;
 use welkin::{
     compiler::{item::Compile, LocalResolver},
-    parser::{self, AbsolutePath, BumpBox, BumpVec, Data, Ident, Path, Variant},
-    SerializableData,
+    parser::{self, BumpBox, BumpVec, Data, Ident, Path, Variant},
 };
+#[doc(hidden)]
+pub use welkin::{parser::AbsolutePath, SerializableData};
+#[doc(hidden)]
 pub use welkin_core;
 use welkin_core::term::{Referent, Term};
 
@@ -664,6 +667,11 @@ pub fn canonically_equivalent_in<A: Adt>(against: &[u8]) -> Result<(), Canonical
         vec![A::DEFINITION.generate_data(&bump).try_into().unwrap()],
         &bincode::deserialize::<Vec<_>>(against)?,
     )?)
+}
+
+#[doc(hidden)]
+pub fn deserialize_defs(buffer: &[u8]) -> Result<Vec<SerializableData>, CanonicalEquivalenceError> {
+    bincode::deserialize(buffer).map_err(CanonicalEquivalenceError::Bincode)
 }
 
 pub fn canonically_equivalent_all_in<A: Adt>(

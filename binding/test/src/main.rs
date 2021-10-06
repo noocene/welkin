@@ -1,34 +1,4 @@
-use welkin_binding::{canonically_equivalent_all_in, concrete_type, Adt, FromWelkin, ToWelkin};
-
-#[derive(Debug, Adt, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
-pub enum Bool {
-    r#true,
-    r#false,
-}
-
-#[derive(Debug, Adt, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
-pub enum Pair<A, B> {
-    new { left: A, right: B },
-}
-
-#[derive(Debug, Adt)]
-#[allow(non_camel_case_types)]
-pub enum Unit {
-    new,
-}
-
-#[derive(Debug, Adt, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
-pub enum Vector<A> {
-    nil,
-    cons {
-        head: A,
-        #[inductive]
-        tail: Box<Vector<A>>,
-    },
-}
+use welkin_binding::{bind, canonically_equivalent_all_in, concrete_type, FromWelkin, ToWelkin};
 
 impl<A> From<Vec<A>> for Vector<A> {
     fn from(vec: Vec<A>) -> Self {
@@ -42,6 +12,19 @@ impl<A> From<Vec<A>> for Vector<A> {
         vector
     }
 }
+
+bind! {
+    #[path = "../../whelk/welkin/defs"]
+    #[include(
+        Unit,
+        Bool,
+        Pair,
+        Vector
+    )]
+    pub mod w {}
+}
+
+use w::*;
 
 fn main() {
     let pair = Pair::new {
