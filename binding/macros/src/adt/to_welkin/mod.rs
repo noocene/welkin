@@ -95,7 +95,7 @@ pub fn derive(structure: &Structure) -> TokenStream {
         gen impl ToWelkin for @Self #where_clause {
             type Error = #to_welkin_error_ident<#error_generics>;
 
-            fn to_welkin(self) -> Result<Term<String>, Self::Error> {
+            fn to_welkin(self) -> Result<Term<::std::string::String>, Self::Error> {
                 let mut term = #to_welkin;
 
                 for _ in 0..#variant_count {

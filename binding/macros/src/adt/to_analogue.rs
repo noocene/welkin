@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_quote, punctuated::Punctuated, Ident, Token, WhereClause};
@@ -10,6 +12,8 @@ pub fn derive(structure: &Structure) -> TokenStream {
 
     let mut inductive_impls = quote! {};
 
+    let mut seen_types = HashSet::new();
+
     for variant in structure.variants() {
         for binding in variant.bindings() {
             let ty = &binding.ast().ty;
@@ -19,6 +23,10 @@ pub fn derive(structure: &Structure) -> TokenStream {
                     #ty: ToAnalogue
                 });
             } else {
+                if !seen_types.insert(format!("{:?}", ty)) {
+                    continue;
+                }
+
                 let mut where_clause: WhereClause = parse_quote!(where);
 
                 let generics: Punctuated<Ident, Token![,]> = binding

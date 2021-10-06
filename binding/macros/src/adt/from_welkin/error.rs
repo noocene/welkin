@@ -111,10 +111,10 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
     });
 
     from_welkin_error.variants.push(parse_quote! {
-        ExpectedLambda(Term<String>)
+        ExpectedLambda(Term<::std::string::String>)
     });
     from_welkin_error.variants.push(parse_quote! {
-        ExpectedApplyOrVariable(Term<String>)
+        ExpectedApplyOrVariable(Term<::std::string::String>)
     });
     from_welkin_error.variants.push(parse_quote! {
         InvalidVariant {

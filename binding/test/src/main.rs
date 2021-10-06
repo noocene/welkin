@@ -19,7 +19,10 @@ bind! {
         Unit,
         Bool,
         Pair,
-        Vector
+        Vector,
+        Word,
+        Char,
+        String,
     )]
     pub mod w {}
 }
