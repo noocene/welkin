@@ -19,6 +19,6 @@ jobs:
       run: cargo build
     - name: Run tests
       run: |
-        cargo run .welkin
-        cd binding/test
-        cargo run
+        cargo run .welkin --bundle ./whelk/welkin/term --export-defs ./whelk/welkin/defs
+        cd whelk
+        cargo build

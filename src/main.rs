@@ -404,18 +404,21 @@ fn main() {
             net.reduce_all();
             let main: Term<String> = net.read_term(welkin_core::net::Index(0));
 
-            let mut args = std::env::args().skip(2);
+            let mut args = std::env::args().skip(2).peekable();
+
+            if let Some(_) = args.peek() {
+                eprintln!("");
+            }
 
             while let Some(a) = args.next() {
                 match a.as_str() {
                     "--bundle" => {
                         std::fs::write(
-                            // "./whelk/welkin/term"
                             args.next().expect("expected path for bundle export"),
                             bincode::serialize(&main).unwrap(),
                         )
                         .unwrap();
-                        return;
+                        eprintln!("EXPORTED bundle");
                     }
                     "--export-defs" => {
                         std::fs::write(
@@ -423,7 +426,7 @@ fn main() {
                             bincode::serialize(&data_declarations).unwrap(),
                         )
                         .unwrap();
-                        return;
+                        eprintln!("EXPORTED definitions");
                     }
                     _ => {}
                 }
