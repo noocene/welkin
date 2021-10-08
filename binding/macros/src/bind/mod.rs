@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::{anyhow, Error};
 
@@ -51,6 +51,8 @@ struct IdentList {
     list: Punctuated<Ident, Token![,]>,
 }
 
+struct OverrideData {}
+
 impl Parse for IdentList {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
         let list;
@@ -93,8 +95,19 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
         let ident = module.ident;
 
         if let Some((_, items)) = module.content {
-            if !items.is_empty() {
-                Err(anyhow!("inline modules should be empty"))?;
+            let mut override_enums = HashMap::new();
+            let mut override_types = HashMap::new();
+
+            for item in items {
+                if let Item::Enum(item) = item {
+                    override_enums.insert(format!("{}", item.ident), item);
+                } else if let Item::Type(item) = item {
+                    override_types.insert(format!("{}", item.ident), item);
+                } else {
+                    Err(anyhow!(
+                        "items in modules should be override enums or aliases"
+                    ))?;
+                }
             }
 
             if let Some(attr) = module
@@ -135,6 +148,47 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                     }
                 }
 
+                let mut override_data = HashMap::new();
+
+                for (name, _) in &override_enums {
+                    override_data.insert(name.as_str(), OverrideData {});
+                }
+
+                for (name, ty) in &override_types {
+                    match &*ty.ty {
+                        syn::Type::Path(path) => {
+                            if let Some(segment) = path.path.segments.first() {
+                                if path.path.segments.len() == 1 {
+                                    includes.push(format!("{}", segment.ident));
+                                    continue;
+                                }
+                            }
+                            Err(anyhow!("expected unit length type path in alias"))?;
+                        }
+                        _ => Err(anyhow!("expected type path in alias"))?,
+                    }
+
+                    override_data.insert(name.as_str(), OverrideData {});
+                }
+
+                let mut override_stream = quote!();
+
+                for (name, en) in &override_enums {
+                    let ident = format_ident!("{}", name);
+                    let variants = &en.variants;
+                    let generics = &en.generics;
+
+                    override_stream = quote! {
+                        #override_stream
+
+                        #[allow(non_camel_case_types)]
+                        #[derive(Debug, Clone, Adt)]
+                        #vis enum #ident #generics {
+                            #variants
+                        }
+                    };
+                }
+
                 if !includes.is_empty() {
                     if let Some(include) = includes
                         .iter()
@@ -145,7 +199,7 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                     defs.retain(|def| includes.contains(&def.ident));
                 }
 
-                let defs = generate_defs(&defs)?;
+                let defs = generate_defs(&defs, &override_data)?;
 
                 defs_stream = quote! {
                     #defs_stream
@@ -154,6 +208,8 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                         extern crate welkin_binding;
 
                         use welkin_binding::Adt;
+
+                        #override_stream
 
                         #defs
                     }
@@ -169,7 +225,10 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
     Ok(defs_stream)
 }
 
-fn generate_defs(defs: &[SerializableData]) -> Result<TokenStream, Error> {
+fn generate_defs(
+    defs: &[SerializableData],
+    overrides: &HashMap<&str, OverrideData>,
+) -> Result<TokenStream, Error> {
     let mut defs_stream = quote!();
 
     for def in defs {
@@ -191,7 +250,7 @@ fn generate_defs(defs: &[SerializableData]) -> Result<TokenStream, Error> {
             for (ident, field) in &variant.inhabitants {
                 let ident = format_ident!("r#{}", ident);
 
-                let (mut ty, is_inductive) = term_to_ty(field, defs, &def.ident)?;
+                let (mut ty, is_inductive) = term_to_ty(field, defs, overrides, &def.ident)?;
 
                 if is_inductive {
                     ty = quote!(Box<#ty>);
@@ -239,6 +298,7 @@ fn generate_defs(defs: &[SerializableData]) -> Result<TokenStream, Error> {
 fn term_to_ty(
     term: &Term<AbsolutePath>,
     defs: &[SerializableData],
+    overrides: &HashMap<&str, OverrideData>,
     this: &str,
 ) -> Result<(TokenStream, bool), Error> {
     let expr = Regex::new("^T[0-9]*$").unwrap();
@@ -278,7 +338,7 @@ fn term_to_ty(
                 None
             };
 
-            let (function, _) = term_to_ty(function, defs, this)?;
+            let (function, _) = term_to_ty(function, defs, overrides, this)?;
 
             let mut args: Punctuated<TokenStream, Token![,]> = parse_quote!();
 
@@ -287,7 +347,7 @@ fn term_to_ty(
             }
 
             for argument in arguments {
-                args.push(term_to_ty(argument, defs, this)?.0);
+                args.push(term_to_ty(argument, defs, overrides, this)?.0);
             }
 
             (
@@ -304,7 +364,10 @@ fn term_to_ty(
         Term::Reference(reference) => {
             if let Some(segment) = reference.0.first() {
                 if reference.0.len() == 1 {
-                    if defs.iter().any(|def| &def.ident == segment) {
+                    if let Some(_) = overrides.get(segment.as_str()) {
+                        let ident = format_ident!("r#{}", segment);
+                        return Ok((quote!(#ident), false));
+                    } else if defs.iter().any(|def| &def.ident == segment) {
                         let ident = format_ident!("r#{}", segment);
                         return Ok((quote!(#ident), false));
                     } else if expr.is_match(segment) {
