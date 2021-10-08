@@ -6,8 +6,8 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use regex::Regex;
 use syn::{
-    parenthesized, parse::Parse, parse2, parse_quote, punctuated::Punctuated, File, Ident, Item,
-    LitStr, Token, Variant,
+    parenthesized, parse::Parse, parse2, parse_quote, punctuated::Punctuated, Fields, File, Ident,
+    Item, ItemStruct, LitInt, LitStr, Token, Variant,
 };
 
 use welkin_binding_lib::{
@@ -46,12 +46,30 @@ impl Parse for PathArg {
     }
 }
 
+struct IndicesArg {
+    _eq_token: Token![=],
+    num: LitInt,
+}
+
+impl Parse for IndicesArg {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        Ok(IndicesArg {
+            _eq_token: input.parse()?,
+            num: input.parse()?,
+        })
+    }
+}
+
 struct IdentList {
     _parens: syn::token::Paren,
     list: Punctuated<Ident, Token![,]>,
 }
 
-struct OverrideData {}
+#[derive(Debug)]
+enum OverrideData {
+    Override { indices: usize },
+    Wrapper { ident: String },
+}
 
 impl Parse for IdentList {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
@@ -94,20 +112,47 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
         let vis = module.vis;
         let ident = module.ident;
 
+        let mut override_data = HashMap::new();
+
         if let Some((_, items)) = module.content {
             let mut override_enums = HashMap::new();
             let mut override_types = HashMap::new();
 
+            let mut wrappers = vec![];
+
             for item in items {
                 if let Item::Enum(item) = item {
                     override_enums.insert(format!("{}", item.ident), item);
+                    continue;
                 } else if let Item::Type(item) = item {
                     override_types.insert(format!("{}", item.ident), item);
-                } else {
-                    Err(anyhow!(
-                        "items in modules should be override enums or aliases"
-                    ))?;
+                    continue;
+                } else if let Item::Struct(st) = item {
+                    if let ItemStruct {
+                        attrs,
+                        fields: Fields::Unit,
+                        ident,
+                        ..
+                    } = &st
+                    {
+                        if let Some(attr) =
+                            attrs.iter().find(|attr| attr.path == parse_quote!(wrapper))
+                        {
+                            let data: PathArg = parse2(attr.tokens.clone())?;
+                            wrappers.push(st.clone());
+                            override_data.insert(
+                                data.path.value(),
+                                OverrideData::Wrapper {
+                                    ident: format!("{}", ident),
+                                },
+                            );
+                            continue;
+                        }
+                    }
                 }
+                Err(anyhow!(
+                    "items in modules should be override enums, aliases, or unit wrapper structs"
+                ))?;
             }
 
             if let Some(attr) = module
@@ -148,13 +193,31 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                     }
                 }
 
-                let mut override_data = HashMap::new();
-
-                for (name, _) in &override_enums {
-                    override_data.insert(name.as_str(), OverrideData {});
+                for (name, en) in &override_enums {
+                    let mut indices = 0;
+                    if let Some(attr) = en
+                        .attrs
+                        .iter()
+                        .find(|attr| attr.path == parse_quote!(indices))
+                    {
+                        let attr: IndicesArg = parse2(attr.tokens.clone())?;
+                        indices = attr.num.base10_digits().parse()?;
+                    }
+                    override_data.insert(name.clone(), OverrideData::Override { indices });
                 }
 
                 for (name, ty) in &override_types {
+                    let mut indices = 0;
+                    if let Some(attr) = ty
+                        .attrs
+                        .iter()
+                        .find(|attr| attr.path == parse_quote!(indices))
+                    {
+                        let attr: IndicesArg = parse2(attr.tokens.clone())?;
+                        indices = attr.num.base10_digits().parse()?;
+                    }
+                    override_data.insert(name.clone(), OverrideData::Override { indices });
+
                     match &*ty.ty {
                         syn::Type::Path(path) => {
                             if let Some(segment) = path.path.segments.first() {
@@ -167,8 +230,6 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                         }
                         _ => Err(anyhow!("expected type path in alias"))?,
                     }
-
-                    override_data.insert(name.as_str(), OverrideData {});
                 }
 
                 let mut override_stream = quote!();
@@ -189,6 +250,31 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                     };
                 }
 
+                for (_, ty) in &override_types {
+                    let ident = &ty.ident;
+                    let generics = &ty.generics;
+                    let ty = &*ty.ty;
+
+                    override_stream = quote! {
+                        #override_stream
+
+                        #vis type #ident #generics = #ty;
+                    };
+                }
+
+                let mut wrapper_stream = quote!();
+
+                for wrapper in wrappers {
+                    let ident = &wrapper.ident;
+
+                    wrapper_stream = quote! {
+                        #wrapper_stream
+
+                        #[derive(Debug, Clone, Hash)]
+                        #vis struct #ident(#vis Term<::std::string::String>);
+                    }
+                }
+
                 if !includes.is_empty() {
                     if let Some(include) = includes
                         .iter()
@@ -207,9 +293,11 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
                     #vis mod #ident {
                         extern crate welkin_binding;
 
-                        use welkin_binding::Adt;
+                        use welkin_binding::{Adt, AbsolutePath, welkin_core::term::Term};
 
                         #override_stream
+
+                        #wrapper_stream
 
                         #defs
                     }
@@ -227,7 +315,7 @@ fn bind_inner(mod_declaration: TokenStream) -> Result<TokenStream, Error> {
 
 fn generate_defs(
     defs: &[SerializableData],
-    overrides: &HashMap<&str, OverrideData>,
+    overrides: &HashMap<String, OverrideData>,
 ) -> Result<TokenStream, Error> {
     let mut defs_stream = quote!();
 
@@ -240,15 +328,30 @@ fn generate_defs(
             type_arguments.push(format_ident!("{}", ('A' as u8 + arg as u8) as char));
         }
 
+        let d_ident = &ident;
+
         let mut variants: Punctuated<Variant, Token![,]> = parse_quote!();
 
         for (ident, variant) in &def.variants {
+            let v_ident = &ident;
             let ident = format_ident!("r#{}", ident);
 
             let mut fields: Punctuated<TokenStream, Token![,]> = parse_quote!();
 
             for (ident, field) in &variant.inhabitants {
+                let path = format!("{}::{}.{}", d_ident, v_ident, ident);
+
                 let ident = format_ident!("r#{}", ident);
+
+                if let Some(OverrideData::Wrapper { ident: i }) = overrides.get(&path) {
+                    let ty = format_ident!("{}", i);
+
+                    fields.push(quote! {
+                        #ident: #ty
+                    });
+
+                    continue;
+                }
 
                 let (mut ty, is_inductive) = term_to_ty(field, defs, overrides, &def.ident)?;
 
@@ -284,7 +387,7 @@ fn generate_defs(
         defs_stream = quote! {
             #defs_stream
 
-            #[derive(Debug, Adt, Clone, PartialEq, Hash)]
+            #[derive(Debug, Adt, Clone)]
             #[allow(non_camel_case_types)]
             pub enum #ident<#type_arguments> {
                 #variants
@@ -298,7 +401,7 @@ fn generate_defs(
 fn term_to_ty(
     term: &Term<AbsolutePath>,
     defs: &[SerializableData],
-    overrides: &HashMap<&str, OverrideData>,
+    overrides: &HashMap<String, OverrideData>,
     this: &str,
 ) -> Result<(TokenStream, bool), Error> {
     let expr = Regex::new("^T[0-9]*$").unwrap();
@@ -344,6 +447,10 @@ fn term_to_ty(
 
             if let Some(def) = name.and_then(|name| defs.iter().find(|def| &def.ident == name)) {
                 arguments.truncate(arguments.len() - def.indices);
+            } else if let Some(&OverrideData::Override { indices }) =
+                name.and_then(|name| overrides.get(name.as_str()))
+            {
+                arguments.truncate(arguments.len() - indices);
             }
 
             for argument in arguments {
@@ -364,8 +471,13 @@ fn term_to_ty(
         Term::Reference(reference) => {
             if let Some(segment) = reference.0.first() {
                 if reference.0.len() == 1 {
-                    if let Some(_) = overrides.get(segment.as_str()) {
+                    if let Some(OverrideData::Override { .. }) = overrides.get(segment.as_str()) {
                         let ident = format_ident!("r#{}", segment);
+                        return Ok((quote!(#ident), false));
+                    } else if let Some(OverrideData::Wrapper { ident }) =
+                        overrides.get(segment.as_str())
+                    {
+                        let ident = format_ident!("r#{}", ident);
                         return Ok((quote!(#ident), false));
                     } else if defs.iter().any(|def| &def.ident == segment) {
                         let ident = format_ident!("r#{}", segment);

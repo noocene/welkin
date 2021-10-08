@@ -1,5 +1,7 @@
 mod error;
 
+use std::collections::VecDeque;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse_quote;
@@ -15,7 +17,7 @@ use crate::adt::is_inductive;
 pub fn derive(structure: &Structure) -> TokenStream {
     let variant_count = structure.variants().len();
 
-    let (from_welkin_error, from_welkin_error_ident, mut error_variant_idents) =
+    let (from_welkin_error, from_welkin_error_ident, error_variant_idents) =
         error::derive(structure);
 
     let mut from_welkin = quote!();
@@ -24,8 +26,8 @@ pub fn derive(structure: &Structure) -> TokenStream {
 
     let mut error_generics: Punctuated<GenericArgument, Token![,]> = parse_quote!();
 
-    for variant in structure.variants() {
-        for binding in variant.bindings() {
+    for variant in structure.variants().iter() {
+        for binding in variant.bindings().iter() {
             let ty = &binding.ast().ty;
 
             if !is_inductive(binding) {
@@ -39,12 +41,21 @@ pub fn derive(structure: &Structure) -> TokenStream {
         }
     }
 
+    let mut error_variant_idents = VecDeque::from(error_variant_idents);
+
     for (idx, variant) in structure.variants().iter().rev().enumerate() {
+        let n_bindings = variant
+            .bindings()
+            .iter()
+            .filter(|binding| !is_inductive(binding))
+            .count();
+        let rem_bindings = error_variant_idents.split_off(n_bindings);
+
         let construct = variant.construct(|field, _| {
             let mut error_transform = quote! {};
 
             if !is_field_inductive(field) {
-                let error_variant_ident = error_variant_idents.pop().unwrap();
+                let error_variant_ident = error_variant_idents.pop_back().unwrap();
 
                 error_transform = quote! {
                     .map_err(#from_welkin_error_ident::#error_variant_ident)
@@ -61,6 +72,8 @@ pub fn derive(structure: &Structure) -> TokenStream {
                 #construct
             }
         };
+
+        error_variant_idents = rem_bindings;
     }
 
     structure.gen_impl(quote! {

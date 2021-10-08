@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     convert::TryFrom,
     ops::{Deref, DerefMut},
 };
@@ -536,7 +535,7 @@ pub struct SerializableVariant {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableData {
-    pub variants: HashMap<String, SerializableVariant>,
+    pub variants: Vec<(String, SerializableVariant)>,
     pub ident: String,
     pub type_arguments: usize,
     pub indices: usize,

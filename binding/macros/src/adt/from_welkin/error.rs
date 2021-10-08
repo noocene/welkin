@@ -53,7 +53,7 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
         })
         .enumerate()
     {
-        let ident = format_ident!("T{}", idx);
+        let ident = format_ident!("r#T{}", idx);
         from_welkin_error.generics.params.push(parse_quote! {
             #ident
         });
@@ -66,7 +66,7 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
             .unwrap_or(true)
         {
             format_ident!(
-                "{}{}",
+                "r#{}{}",
                 variant.ast().ident,
                 binding
                     .ast()
@@ -76,7 +76,7 @@ pub fn derive(structure: &Structure) -> (TokenStream, Ident, Vec<Ident>) {
             )
         } else {
             format_ident!(
-                "{}",
+                "r#{}",
                 binding
                     .ast()
                     .ident

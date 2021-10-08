@@ -1,5 +1,7 @@
 mod error;
 
+use std::collections::VecDeque;
+
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse_quote;
@@ -14,12 +16,20 @@ use crate::adt::is_inductive;
 pub fn derive(structure: &Structure) -> TokenStream {
     let variant_count = structure.variants().len();
 
-    let (to_welkin_error, to_welkin_error_ident, mut error_variant_idents) =
-        error::derive(structure);
+    let (to_welkin_error, to_welkin_error_ident, error_variant_idents) = error::derive(structure);
 
     let mut to_welkin = quote!();
 
+    let mut error_variant_idents = VecDeque::from(error_variant_idents);
+
     for (idx, variant) in structure.variants().iter().rev().enumerate() {
+        let n_bindings = variant
+            .bindings()
+            .iter()
+            .filter(|binding| !is_inductive(binding))
+            .count();
+        let rem_bindings = error_variant_idents.split_off(n_bindings);
+
         let mut stream = quote! {
             let mut term = Term::Variable(Index(#idx));
         };
@@ -30,7 +40,7 @@ pub fn derive(structure: &Structure) -> TokenStream {
             let mut error_transform = quote! {};
 
             if !is_inductive(binding) {
-                let error_variant_ident = error_variant_idents.pop().unwrap();
+                let error_variant_ident = error_variant_idents.pop_back().unwrap();
 
                 error_transform = quote! {
                     .map_err(#to_welkin_error_ident::#error_variant_ident)
@@ -47,6 +57,8 @@ pub fn derive(structure: &Structure) -> TokenStream {
                 };
             };
         }
+
+        error_variant_idents = rem_bindings;
 
         let pat = variant.pat();
 

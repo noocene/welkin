@@ -626,13 +626,21 @@ fn canonically_equivalent_data(
 ) -> bool {
     rust.ident == welkin.ident
         && rust.type_arguments == welkin.type_arguments
-        && rust.variants.keys().collect::<HashSet<_>>()
-            == welkin.variants.keys().collect::<HashSet<_>>()
         && rust
             .variants
             .iter()
-            .map(|a| (a.1, welkin.variants.get(a.0).unwrap()))
-            .all(|(rust, welkin)| {
+            .map(|a| a.0.as_str())
+            .collect::<HashSet<_>>()
+            == welkin
+                .variants
+                .iter()
+                .map(|a| a.0.as_str())
+                .collect::<HashSet<_>>()
+        && rust
+            .variants
+            .iter()
+            .zip(welkin.variants.iter())
+            .all(|((_, rust), (_, welkin))| {
                 rust.inhabitants.len() == welkin.inhabitants.len()
                     && rust.inhabitants.iter().zip(welkin.inhabitants.iter()).all(
                         |((_, rust), (_, welkin))| {
@@ -686,4 +694,59 @@ pub fn canonically_equivalent_all_in<A: Adt>(
             .collect(),
         &bincode::deserialize::<Vec<_>>(against)?,
     )?)
+}
+
+#[macro_export]
+macro_rules! impl_wrapper {
+    (
+        $($a:ty),+
+    ) => {
+        $(
+        const _: () = {
+        extern crate welkin_binding;
+        impl welkin_binding::Analogous for $a {
+            type Analogue = Self;
+        }
+
+        impl welkin_binding::ToAnalogue for $a {
+            type Analogue = Self;
+
+            fn to_analogue(self) -> <Self as welkin_binding::ToAnalogue>::Analogue {
+                self
+            }
+        }
+
+        impl welkin_binding::FromAnalogue for $a {
+            type Analogue = Self;
+
+            fn from_analogue(analogue: <Self as welkin_binding::FromAnalogue>::Analogue) -> Self {
+                analogue
+            }
+        }
+
+        impl welkin_binding::Adt for $a {
+            const DEFINITION: welkin_binding::AdtDefinition = welkin_binding::AdtDefinition {
+                name: stringify!($a),
+                variants: &[],
+                params: 0,
+            };
+
+            const PARAMS: &'static [welkin_binding::Type] = &[];
+        }
+        impl welkin_binding::ToWelkin for $a {
+            type Error = std::convert::Infallible;
+
+            fn to_welkin(self) -> Result<welkin_binding::welkin_core::term::Term<String>, Self::Error> {
+                Ok(self.0)
+            }
+        }
+
+        impl welkin_binding::FromWelkin for $a {
+            type Error = std::convert::Infallible;
+
+            fn from_welkin(term: welkin_binding::welkin_core::term::Term<String>) -> Result<Self, Self::Error> {
+                Ok(Self(term))
+            }
+        }; ()};)+
+    };
 }

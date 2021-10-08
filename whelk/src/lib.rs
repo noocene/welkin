@@ -1,26 +1,26 @@
-mod evaluator;
-mod interface;
+#[macro_export]
+macro_rules! console_log {
+    ($($t:tt)*) => (#[allow(unused_unsafe)] unsafe { web_sys::console::log_1(&format_args!($($t)*).to_string().into()) })
+}
 
-use std::{cell::RefCell, error::Error, panic, rc::Rc};
+mod bindings;
+mod evaluator;
+
+use std::{cell::RefCell, error::Error, mem::replace, panic, rc::Rc};
 
 use bincode::deserialize;
+use bindings::w;
 use evaluator::Evaluator;
 use futures::{channel::mpsc::unbounded, SinkExt, Stream, StreamExt};
-use interface::{
-    whelk::{Request, Whelk},
-    FromWelkin, Io, Unit,
-};
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlInputElement, KeyboardEvent};
+use welkin_binding::{FromAnalogue, FromWelkin, ToWelkin};
 use welkin_core::term::Term;
 
 use async_recursion::async_recursion;
 
-use crate::{
-    evaluator::Substitution,
-    interface::{whelk, ToWelkin, WSized, WString},
-};
+use crate::{bindings::io::iter::LoopRequest, evaluator::Substitution};
 
 #[wasm_bindgen]
 pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
@@ -79,7 +79,13 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
 
         let term: Term<String> = deserialize(&term).unwrap();
 
-        let io = (Whelk::from_welkin(term).unwrap().0).0;
+        let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
+
+        let io = match whelk {
+            w::Whelk::new { data } => match data {
+                w::BoxPoly::new { data } => data,
+            },
+        };
 
         let evaluator = Substitution;
 
@@ -103,33 +109,42 @@ async fn run_io<
     F: Fn(&str),
     R: Stream<Item = String> + Unpin,
     E: Evaluator + 'static,
-    D: FromWelkin + 'static,
+    D: Clone + FromAnalogue + 'static,
 >(
-    io: Io<Request, D>,
+    mut io: w::WhelkIO<D>,
     push_paragraph: &F,
     receive: &mut R,
     evaluator: &E,
 ) -> Result<D, anyhow::Error>
 where
     E::Error: Error + Send + Sync,
-    <D as FromWelkin>::Error: Send + Sync + Error,
+    <<D as FromAnalogue>::Analogue as FromWelkin>::Error: Send + Sync + Error,
 {
     match io {
-        Io::Data(data) => Ok(data),
-        Io::Request(request) => {
-            let req = request.request();
+        w::IO::end { value } => Ok(value),
+        w::IO::call {
+            ref mut request, ..
+        } => {
             push_paragraph(&format!(
                 "REQUEST) \n{}",
-                match req {
-                    whelk::Request::Loop(_) => "Loop",
-                    whelk::Request::Prompt => "Prompt",
-                    whelk::Request::Print(_) => "Print",
+                match request {
+                    w::WhelkRequest::r#loop { .. } => "Loop",
+                    w::WhelkRequest::r#prompt { .. } => "Prompt",
+                    w::WhelkRequest::r#print { .. } => "Print",
                 }
             ));
 
-            match req {
-                whelk::Request::Loop(request) => {
-                    let mut request = request.clone();
+            match request {
+                w::WhelkRequest::r#loop {
+                    initial,
+                    r#continue,
+                    step,
+                } => {
+                    let mut request = LoopRequest::new(
+                        replace(&mut initial.0, Term::Universe),
+                        replace(&mut r#continue.0, Term::Universe),
+                        replace(&mut step.0, Term::Universe),
+                    );
                     loop {
                         request
                             .step(&*evaluator, |io| async {
@@ -139,21 +154,38 @@ where
                         if request.proceed(&*evaluator)? {
                             continue;
                         } else {
-                            break Ok(FromWelkin::from_welkin(request.into_state())?);
+                            break Ok(FromAnalogue::from_analogue(FromWelkin::from_welkin(
+                                request.into_state(),
+                            )?));
                         }
                     }
                 }
-                whelk::Request::Prompt => {
+                w::WhelkRequest::prompt { .. } => {
                     push_paragraph(&format!("PROMPT)"));
                     let message = receive.next().await.unwrap();
                     push_paragraph(&format!("FULFILLED) {:?}", message));
-                    let io = request
-                        .fulfill(WSized(WString(message)).to_welkin().unwrap(), &*evaluator)?;
+                    let io = io.into_request().unwrap().fulfill(
+                        w::Sized::<w::String>::new {
+                            size: message.len().into(),
+                            data: message.into(),
+                        }
+                        .to_welkin()
+                        .unwrap(),
+                        &*evaluator,
+                    )?;
                     run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
                 }
-                whelk::Request::Print(data) => {
-                    push_paragraph(&format!("PRINT) \n{:?}", (data.0).0));
-                    let io = request.fulfill(Unit.to_welkin().unwrap(), &*evaluator)?;
+                w::WhelkRequest::print { data } => {
+                    push_paragraph(&format!(
+                        "PRINT) \n{:?}",
+                        String::from(match data.clone() {
+                            w::Sized::new { data, .. } => data,
+                        })
+                    ));
+                    let io = io
+                        .into_request()
+                        .unwrap()
+                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
                     run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
                 }
             }
