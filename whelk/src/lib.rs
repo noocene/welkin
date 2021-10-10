@@ -4,12 +4,14 @@ macro_rules! console_log {
 }
 
 mod bindings;
+mod edit;
 mod evaluator;
 
 use std::{cell::RefCell, error::Error, mem::replace, panic, rc::Rc};
 
 use bincode::deserialize;
 use bindings::w;
+use edit::Scratchpad;
 use evaluator::Evaluator;
 use futures::{channel::mpsc::unbounded, SinkExt, Stream, StreamExt};
 use wasm_bindgen::{prelude::*, JsCast};
@@ -21,6 +23,12 @@ use welkin_core::term::Term;
 use async_recursion::async_recursion;
 
 use crate::{bindings::io::iter::LoopRequest, evaluator::Substitution};
+
+enum Block {
+    Info { header: String, content: String },
+    Printed { data: String },
+    Scratchpad { data: Scratchpad },
+}
 
 #[wasm_bindgen]
 pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
@@ -68,10 +76,41 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
 
         input_submit_handler.forget();
 
-        let push_paragraph = move |data: &str| {
-            let paragraph = document.create_element("p").unwrap();
-            paragraph.set_text_content(Some(data));
-            container.append_child(&paragraph).unwrap();
+        let push_paragraph = move |data: Block| {
+            match data {
+                Block::Info { header, content } => {
+                    let paragraph = document.create_element("p").unwrap();
+                    let header_span = document.create_element("span").unwrap();
+                    header_span.class_list().add_1("info-header").unwrap();
+                    paragraph.class_list().add_1("info").unwrap();
+                    header_span.set_text_content(Some(&header));
+                    paragraph.append_child(&header_span).unwrap();
+                    let text = document.create_text_node(&content);
+                    paragraph.append_child(&text).unwrap();
+                    container.append_child(&paragraph).unwrap();
+                }
+                Block::Printed { data } => {
+                    let wrapper = document.create_element("div").unwrap();
+                    wrapper.class_list().add_2("printed", "wrapper").unwrap();
+                    let paragraph = document.create_element("p").unwrap();
+                    paragraph.class_list().add_2("printed", "content").unwrap();
+                    paragraph.set_text_content(Some(&data));
+                    wrapper.append_child(&paragraph).unwrap();
+                    container.append_child(&wrapper).unwrap();
+                }
+                Block::Scratchpad { mut data } => {
+                    let wrapper = document.create_element("div").unwrap();
+                    wrapper.class_list().add_2("scratchpad", "wrapper").unwrap();
+                    container.append_child(&wrapper).unwrap();
+                    spawn_local(async move {
+                        loop {
+                            data.render_to(&wrapper).unwrap();
+                            data.needs_update().await;
+                            data = data.apply_mutations().unwrap();
+                        }
+                    });
+                }
+            };
             window.scroll_to_with_x_and_y(0., body.scroll_height() as f64);
         };
 
@@ -96,6 +135,22 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
             });
         });
 
+        let term = zipper::Term::Lambda {
+            erased: false,
+            annotation: (),
+            name: Some("x".into()),
+            body: Box::new(zipper::Term::Lambda {
+                erased: false,
+                annotation: (),
+                name: Some("y".into()),
+                body: Box::new(zipper::Term::Reference("x".into(), ())),
+            }),
+        };
+
+        let scratchpad = Scratchpad::new(term);
+
+        push_paragraph(Block::Scratchpad { data: scratchpad });
+
         run_io(io, &push_paragraph, &mut receive, &evaluator)
             .await
             .unwrap();
@@ -106,7 +161,7 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
 
 #[async_recursion(?Send)]
 async fn run_io<
-    F: Fn(&str),
+    F: Fn(Block),
     R: Stream<Item = String> + Unpin,
     E: Evaluator + 'static,
     D: Clone + FromAnalogue + 'static,
@@ -125,14 +180,15 @@ where
         w::IO::call {
             ref mut request, ..
         } => {
-            push_paragraph(&format!(
-                "REQUEST) \n{}",
-                match request {
-                    w::WhelkRequest::r#loop { .. } => "Loop",
-                    w::WhelkRequest::r#prompt { .. } => "Prompt",
-                    w::WhelkRequest::r#print { .. } => "Print",
+            push_paragraph(Block::Info {
+                header: "REQ".into(),
+                content: match request {
+                    w::WhelkRequest::r#loop { .. } => "loop",
+                    w::WhelkRequest::r#prompt { .. } => "prompt",
+                    w::WhelkRequest::r#print { .. } => "print",
                 }
-            ));
+                .into(),
+            });
 
             match request {
                 w::WhelkRequest::r#loop {
@@ -161,9 +217,11 @@ where
                     }
                 }
                 w::WhelkRequest::prompt { .. } => {
-                    push_paragraph(&format!("PROMPT)"));
                     let message = receive.next().await.unwrap();
-                    push_paragraph(&format!("FULFILLED) {:?}", message));
+                    push_paragraph(Block::Info {
+                        header: "FUL".into(),
+                        content: format!("{:?}", message.clone()),
+                    });
                     let io = io.into_request().unwrap().fulfill(
                         w::Sized::<w::String>::new {
                             size: message.len().into(),
@@ -176,12 +234,11 @@ where
                     run_io(io, &*push_paragraph, &mut *receive, &*evaluator).await
                 }
                 w::WhelkRequest::print { data } => {
-                    push_paragraph(&format!(
-                        "PRINT) \n{:?}",
-                        String::from(match data.clone() {
-                            w::Sized::new { data, .. } => data,
-                        })
-                    ));
+                    push_paragraph(Block::Printed {
+                        data: match data {
+                            w::Sized::new { data, .. } => data.clone().into(),
+                        },
+                    });
                     let io = io
                         .into_request()
                         .unwrap()

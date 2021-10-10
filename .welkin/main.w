@@ -13,7 +13,6 @@ data < WhelkIO::bind[
         print(data)
 )
 
-
 Whelk::new[
     ~literal Size 1,
     ~literal Size 0
