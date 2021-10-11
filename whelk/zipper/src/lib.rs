@@ -1,6 +1,13 @@
+#![recursion_limit = "2048"]
+use core_futures_io::FuturesCompat;
+use mincodec::{
+    AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, Deserialize, MinCodec,
+    MinCodecRead, MinCodecWrite, Serialize,
+};
 use welkin_core::term::{self, Index};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, MinCodec)]
+#[bounds(T)]
 pub enum Term<T = ()> {
     Lambda {
         erased: bool,
@@ -105,6 +112,59 @@ impl<T> Term<T> {
 
             Term::Hole(annotation) => Term::Hole(f(annotation)?),
         })
+    }
+}
+
+impl<T: MinCodecWrite + MinCodecRead + Unpin> Term<T>
+where
+    T::Serialize: Unpin,
+{
+    pub async fn encode(
+        self,
+    ) -> Result<
+        String,
+        AsyncWriterError<
+            std::io::Error,
+            <<Term<T> as MinCodecWrite>::Serialize as Serialize>::Error,
+        >,
+    > {
+        let mut buffer = vec![];
+
+        AsyncWriter::new(FuturesCompat::new(&mut buffer), self).await?;
+
+        let buffer = base91::slice_encode(&buffer);
+
+        Ok(format!(
+            "welkin:{}",
+            String::from_utf8_lossy(&buffer).as_ref()
+        ))
+    }
+
+    pub async fn decode(
+        data: String,
+    ) -> Result<
+        Option<Self>,
+        AsyncReaderError<
+            std::io::Error,
+            <<Term<T> as MinCodecRead>::Deserialize as Deserialize>::Error,
+        >,
+    >
+    where
+        T::Deserialize: Unpin,
+    {
+        let data = data.trim();
+
+        if !data.starts_with("welkin:") {
+            return Ok(None);
+        }
+
+        let data: String = data.chars().skip("welkin:".len()).collect();
+
+        let buffer = base91::slice_decode(data.as_bytes());
+
+        AsyncReader::new(FuturesCompat::new(buffer.as_slice()))
+            .await
+            .map(Some)
     }
 }
 
@@ -585,6 +645,10 @@ pub struct HoleCursor<T> {
 impl<T> HoleCursor<T> {
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn ascend(self) -> Cursor<T> {

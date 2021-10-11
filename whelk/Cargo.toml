@@ -31,7 +31,9 @@ web-sys = { version = "0.3.51", features = [
     "Text",
     "Selection",
     "Range",
-    "NodeList"
+    "NodeList",
+    "ClipboardEvent",
+    "DataTransfer"
   ] }
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
 welkin-binding = { path = "../binding" }

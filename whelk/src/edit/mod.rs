@@ -1,12 +1,13 @@
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{cell::RefCell, convert::Infallible, rc::Rc};
 
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
-    StreamExt,
+    task::{noop_waker, Context},
+    Future, StreamExt,
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{Element, HtmlElement, KeyboardEvent, Node};
+use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, Node};
 use zipper::{Cursor, Term};
 
 #[derive(Clone, Debug)]
@@ -78,23 +79,23 @@ pub enum UiSectionVariance {
         p: Element,
         span: Element,
         container: Node,
-        closures: Rc<Vec<Closure<dyn Fn(JsValue)>>>,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
         mutations: Rc<RefCell<Vec<LambdaMutation>>>,
     },
     Application {
         container: Element,
-        closures: Rc<Vec<Closure<dyn Fn(JsValue)>>>,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
         mutations: Rc<RefCell<Vec<ApplicationMutation>>>,
     },
     Reference {
         p: Element,
         mutations: Rc<RefCell<Vec<ReferenceMutation>>>,
-        closures: Rc<Vec<Closure<dyn Fn(JsValue)>>>,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
     },
     Hole {
         p: Element,
         mutations: Rc<RefCell<Vec<HoleMutation>>>,
-        closures: Rc<Vec<Closure<dyn Fn(JsValue)>>>,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
     },
 }
 
@@ -233,6 +234,7 @@ pub struct Scratchpad {
     data: Rc<RefCell<Cursor<UiSection>>>,
     needs_update: Receiver<()>,
     sender: Sender<()>,
+    clipboard_event_handler: Closure<dyn FnMut(JsValue)>,
 }
 
 fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
@@ -272,7 +274,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                         ));
                         let _ = sender.borrow_mut().try_send(());
                     }
-                }) as Box<dyn Fn(JsValue)>);
+                }) as Box<dyn FnMut(JsValue)>);
 
                 span.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref())
                     .unwrap();
@@ -286,7 +288,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                         focus_contenteditable(&span, true);
                         let _ = sender.borrow_mut().try_send(());
                     }
-                }) as Box<dyn Fn(JsValue)>);
+                }) as Box<dyn FnMut(JsValue)>);
 
                 span.add_event_listener_with_callback(
                     "focus",
@@ -314,7 +316,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
-                }) as Box<dyn Fn(JsValue)>);
+                }) as Box<dyn FnMut(JsValue)>);
 
                 span.add_event_listener_with_callback(
                     "keydown",
@@ -369,7 +371,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                         focus_application(&container, true);
                         let _ = sender.borrow_mut().try_send(());
                     }
-                }) as Box<dyn Fn(JsValue)>);
+                }) as Box<dyn FnMut(JsValue)>);
 
                 container
                     .add_event_listener_with_callback(
@@ -399,7 +401,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                             }
                         }
                     }
-                }) as Box<dyn Fn(JsValue)>);
+                }) as Box<dyn FnMut(JsValue)>);
 
                 container
                     .add_event_listener_with_callback(
@@ -436,7 +438,6 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                     mutations.borrow_mut().push({
                         let content = p.text_content().unwrap_or("".to_owned());
                         if content.is_empty() {
-                            console_log!("a");
                             p.remove();
                             ReferenceMutation::Remove
                         } else {
@@ -445,7 +446,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                     });
                     let _ = sender.borrow_mut().try_send(());
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -459,7 +460,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                     focus_contenteditable(&p, true);
                     let _ = sender.borrow_mut().try_send(());
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("focus", focus_closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -477,7 +478,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                         }
                     }
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("blur", blur_closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -579,7 +580,7 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                         }
                     }
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -589,7 +590,7 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 move |_| {
                     p.set_text_content(Some(""));
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("blur", blur_closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -603,7 +604,7 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                     focus_contenteditable(&p, true);
                     let _ = sender.borrow_mut().try_send(());
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("focus", focus_closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -623,7 +624,7 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                         let _ = sender.borrow_mut().try_send(());
                     }
                 }
-            }) as Box<dyn Fn(JsValue)>);
+            }) as Box<dyn FnMut(JsValue)>);
 
             p.add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
                 .unwrap();
@@ -883,32 +884,142 @@ fn apply_mutations(
 
 impl Scratchpad {
     pub fn new(term: Term) -> Self {
-        let (sender, receiver) = channel(0);
+        let (mut sender, receiver) = channel(0);
+        let data = Rc::new(RefCell::new(add_ui(term, &sender).into()));
 
-        Scratchpad {
-            data: Rc::new(RefCell::new(add_ui(term, &sender).into())),
+        let scratchpad = Scratchpad {
+            data: data.clone(),
             needs_update: receiver,
-            sender: sender,
-        }
+            sender: sender.clone(),
+            clipboard_event_handler: Closure::wrap(Box::new(move |e: JsValue| {
+                let e: ClipboardEvent = e.dyn_into().unwrap();
+                let c_data = e.clipboard_data().unwrap();
+                let data = &mut *data.borrow_mut();
+
+                match e.type_().as_str() {
+                    "cut" => {}
+                    "copy" => {
+                        let term: Term<()> = Term::<UiSection>::from(data.clone())
+                            .try_map_annotation(|_| Ok::<_, Infallible>(()))
+                            .unwrap();
+
+                        let waker = noop_waker();
+                        let mut context = Context::from_waker(&waker);
+
+                        let mut fut = Box::pin(term.encode());
+
+                        let data = loop {
+                            match fut.as_mut().poll(&mut context) {
+                                std::task::Poll::Ready(data) => break data,
+                                std::task::Poll::Pending => {}
+                            }
+                        };
+
+                        if let Ok(data) = data {
+                            c_data.set_data("text/plain", &data).unwrap();
+                        }
+
+                        e.prevent_default();
+                    }
+                    "paste" => {
+                        if let Cursor::Hole(cursor) = data {
+                            e.prevent_default();
+                            if let Ok(data) = c_data.get_data("text/plain") {
+                                let waker = noop_waker();
+                                let mut context = Context::from_waker(&waker);
+
+                                let mut fut = Box::pin(Term::<()>::decode(data));
+
+                                let data = loop {
+                                    match fut.as_mut().poll(&mut context) {
+                                        std::task::Poll::Ready(data) => break data,
+                                        std::task::Poll::Pending => {}
+                                    }
+                                };
+
+                                if let Ok(Some(data)) = data {
+                                    match &mut cursor.annotation_mut().variant {
+                                        UiSectionVariance::Hole { p, mutations, .. } => {
+                                            p.remove();
+                                            mutations
+                                                .borrow_mut()
+                                                .push(HoleMutation::Replace(add_ui(data, &sender)));
+                                        }
+                                        _ => panic!(),
+                                    }
+                                    let _ = sender.try_send(());
+                                }
+                            }
+                        }
+                    }
+                    _ => panic!(),
+                }
+            }) as Box<dyn FnMut(JsValue)>),
+        };
+
+        scratchpad.add_copy_listener();
+
+        scratchpad
     }
 
     pub async fn needs_update(&mut self) {
-        'outer: loop {
-            self.needs_update.next().await.unwrap();
-            loop {
-                fluvio_wasm_timer::Delay::new(Duration::from_millis(50))
-                    .await
-                    .unwrap();
-                if self.needs_update.try_next().is_err() {
-                    break 'outer;
-                }
-            }
-        }
+        self.needs_update.next().await.unwrap()
+    }
+
+    fn add_copy_listener(&self) {
+        let annotation = self.data.borrow();
+        let annotation = annotation.annotation();
+
+        let el = match &annotation.variant {
+            UiSectionVariance::Lambda { span, .. } => span,
+            UiSectionVariance::Application { container, .. } => container,
+            UiSectionVariance::Reference { p, .. } => p,
+            UiSectionVariance::Hole { p, .. } => p,
+        };
+        el.add_event_listener_with_callback(
+            "cut",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )
+        .unwrap();
+        el.add_event_listener_with_callback(
+            "copy",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )
+        .unwrap();
+        el.add_event_listener_with_callback(
+            "paste",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )
+        .unwrap();
     }
 
     pub fn apply_mutations(self) -> Result<Self, JsValue> {
+        let perf = web_sys::window().unwrap().performance().unwrap();
+        let time = perf.now();
+
         let mut focused = None;
         let mut data = self.data.borrow().clone();
+
+        let annotation = data.annotation();
+
+        let el = match &annotation.variant {
+            UiSectionVariance::Lambda { span, .. } => span,
+            UiSectionVariance::Application { container, .. } => container,
+            UiSectionVariance::Reference { p, .. } => p,
+            UiSectionVariance::Hole { p, .. } => p,
+        };
+        el.remove_event_listener_with_callback(
+            "cut",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )?;
+        el.remove_event_listener_with_callback(
+            "copy",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )?;
+        el.remove_event_listener_with_callback(
+            "paste",
+            self.clipboard_event_handler.as_ref().unchecked_ref(),
+        )?;
 
         data = apply_mutations(data, &mut focused, &self.sender)?;
 
@@ -924,14 +1035,24 @@ impl Scratchpad {
             data = focused;
         }
 
+        self.add_copy_listener();
+
+        *self.data.borrow_mut() = data;
+
+        console_log!("update took {:.1}ms", perf.now() - time);
+
         Ok(Scratchpad {
-            data: Rc::new(RefCell::new(data)),
+            data: self.data,
             needs_update: self.needs_update,
             sender: self.sender.clone(),
+            clipboard_event_handler: self.clipboard_event_handler,
         })
     }
 
     pub fn render_to(&self, node: &Node) -> Result<(), JsValue> {
+        let perf = web_sys::window().unwrap().performance().unwrap();
+        let time = perf.now();
+
         let mut data = self.data.borrow().clone();
 
         while !data.is_top() {
@@ -946,6 +1067,8 @@ impl Scratchpad {
                 data.borrow().annotation().focus();
             }
         });
+
+        console_log!("render took {:.1}ms", perf.now() - time);
 
         Ok(())
     }
