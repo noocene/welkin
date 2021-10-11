@@ -152,6 +152,10 @@
             color: #8C9440;
         }
         
+        .lambdawrapper.erased>p.lambda::before {
+            content: 'Λ ';
+        }
+        
         .lambda.arg {
             color: #B5BD68;
             clear: both;
@@ -166,12 +170,63 @@
             content: '\00a0';
         }
         
+        .lambdawrapper {
+            display: inline-block;
+        }
+        
         .lambdawrapper>.lambdawrapper {
             display: inline;
         }
         
-        .lambdawrapper>.lambdawrapper>.lambda::before {
+        .lambdawrapper:not(.erased)>.lambdawrapper:not(.erased)>.lambda::before {
             content: "";
+        }
+        
+        .lambdawrapper.erased>.lambdawrapper.erased>.lambda::before {
+            content: "";
+        }
+        
+        .application {
+            display: inline-block;
+            outline: none;
+        }
+        
+        .application::before {
+            content: '(';
+            color: #8C9440;
+        }
+        
+        .application::after {
+            content: ')';
+            color: #8C9440;
+        }
+        
+        .application.erased::before {
+            content: '[';
+        }
+        
+        .application.erased::after {
+            content: ']';
+        }
+        
+        .application-argument::before {
+            content: '\00a0';
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased)::before {
+            content: '';
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased)::after {
+            content: '';
+        }
+        
+        .application.erased>.application-argument>.application.erased::before {
+            content: '';
+        }
+        
+        .application.erased>.application-argument>.application.erased::after {
+            content: '';
         }
         
         .lambda {
@@ -195,11 +250,15 @@
             content: '○';
         }
         
-        [contenteditable]:hover {
+        [contenteditable]:hover,
+        .application:hover::before,
+        .application:hover::after {
             outline: 1px solid rgba(255, 255, 255, 0.5);
         }
         
-        [contenteditable]:focus {
+        [contenteditable]:focus,
+        .application:focus::before,
+        .application:focus::after {
             outline: 1px solid rgba(255, 255, 255, 0.9);
         }
         

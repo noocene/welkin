@@ -216,6 +216,17 @@ impl<T> LambdaCursor<T> {
         self.erased
     }
 
+    pub fn erased_mut(&mut self) -> &mut bool {
+        &mut self.erased
+    }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            up: self.up,
+            annotation,
+        }
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.name.as_ref().map(|a| a.as_str())
     }
@@ -262,6 +273,27 @@ impl<T> ApplicationCursor<T> {
 
     pub fn erased(&self) -> bool {
         self.erased
+    }
+
+    pub fn erased_mut(&mut self) -> &mut bool {
+        &mut self.erased
+    }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            up: self.up,
+            annotation,
+        }
+    }
+
+    pub fn with_function(mut self, function: Term<T>) -> Self {
+        self.function = function;
+        self
+    }
+
+    pub fn with_argument(mut self, argument: Term<T>) -> Self {
+        self.argument = argument;
+        self
     }
 
     pub fn function(self) -> Cursor<T> {
@@ -851,9 +883,10 @@ impl<T> Cursor<T> {
     where
         T: Clone,
     {
+        let done = self.is_top();
         Context {
             cursor: self.clone(),
-            done: false,
+            done,
             next: None,
         }
     }
@@ -901,6 +934,8 @@ impl<T: Clone> Iterator for Context<T> {
                 binder
             } {
                 break Some(binder);
+            } else if self.done {
+                break None;
             }
         };
 

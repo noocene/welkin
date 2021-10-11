@@ -135,17 +135,7 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
             });
         });
 
-        let term = zipper::Term::Lambda {
-            erased: false,
-            annotation: (),
-            name: Some("x".into()),
-            body: Box::new(zipper::Term::Lambda {
-                erased: false,
-                annotation: (),
-                name: Some("y".into()),
-                body: Box::new(zipper::Term::Reference("x".into(), ())),
-            }),
-        };
+        let term = zipper::Term::Hole(());
 
         let scratchpad = Scratchpad::new(term);
 
