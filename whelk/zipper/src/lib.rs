@@ -534,6 +534,13 @@ impl<T> UniverseCursor<T> {
         Cursor::ascend_helper(self.path, Term::Universe(self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            up: self.path,
+            annotation,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
