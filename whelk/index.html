@@ -309,7 +309,8 @@
         .application:hover::after,
         .universe:hover,
         .wrap-inner:hover::before,
-        .application-spacer:hover::before {
+        .application-spacer:hover::before,
+        .put-inner:hover::before {
             outline: 1px solid rgba(255, 255, 255, 0.5);
         }
         
@@ -317,7 +318,8 @@
         .application:focus::before,
         .application:focus::after,
         .universe:focus,
-        .wrap:focus>.wrap-inner::before {
+        .wrap:focus>.wrap-inner::before,
+        .put:focus>.put-inner::before {
             outline: 1px solid rgba(255, 255, 255, 0.9);
         }
         
@@ -353,6 +355,20 @@
         }
         
         .wrap-inner {
+            display: inline-block;
+        }
+        
+        .put {
+            display: inline-block;
+        }
+        
+        .put-inner::before {
+            content: '`';
+            color: #8C9440;
+            display: inline-block;
+        }
+        
+        .put-inner {
             display: inline-block;
         }
     </style>
