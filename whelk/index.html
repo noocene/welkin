@@ -364,12 +364,37 @@
         
         .put-inner::before {
             content: '`';
-            color: #8C9440;
+            color: #B5BD68;
             display: inline-block;
         }
         
         .put-inner {
             display: inline-block;
+        }
+        
+        .duplication {
+            display: inline-block;
+        }
+        
+        .duplication::before {
+            color: #B5BD68;
+        }
+        
+        .duplication-inner {
+            color: #B5BD68;
+        }
+        
+        .duplication-inner:empty::before {
+            content: '□';
+        }
+        
+        .duplication-expression::before {
+            content: ' ← ';
+            color: #B5BD68;
+        }
+        
+        .duplication-body::before {
+            content: '\00a0';
         }
     </style>
 

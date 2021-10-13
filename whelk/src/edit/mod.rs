@@ -59,6 +59,13 @@ mod mutations {
         Focus,
         Remove,
     }
+
+    #[derive(Clone, Debug)]
+    pub enum DuplicationMutation {
+        Focus,
+        Remove,
+        Update(String),
+    }
 }
 pub use mutations::*;
 
@@ -137,6 +144,12 @@ pub enum UiSectionVariance {
         mutations: Rc<RefCell<Vec<PutMutation>>>,
         closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
     },
+    Duplication {
+        container: Element,
+        span: Element,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
+        mutations: Rc<RefCell<Vec<DuplicationMutation>>>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -194,6 +207,14 @@ impl UiSection {
                 container.remove();
                 mutations.borrow_mut().push(PutMutation::Remove);
             }
+            UiSectionVariance::Duplication {
+                mutations,
+                container,
+                ..
+            } => {
+                container.remove();
+                mutations.borrow_mut().push(DuplicationMutation::Remove);
+            }
         }
         let _ = sender.clone().try_send(());
     }
@@ -220,6 +241,9 @@ impl UiSection {
             }
             UiSectionVariance::Put { container, .. } => {
                 focus_element(container, false);
+            }
+            UiSectionVariance::Duplication { span, .. } => {
+                focus_contenteditable(span, false);
             }
         }
     }
@@ -350,6 +374,24 @@ impl UiSection {
                     }
 
                     Some(content.clone().into())
+                }
+                _ => panic!(),
+            },
+            UiSectionVariance::Duplication {
+                container, span, ..
+            } => match cursor {
+                Cursor::Duplication(cursor) => {
+                    if !into.contains(Some(&container)) {
+                        into.append_child(&container)?;
+                    }
+
+                    if let Some(binder) = cursor.binder() {
+                        span.set_text_content(Some(binder));
+                    } else {
+                        span.set_text_content(Some(""));
+                    }
+
+                    Some(container.clone().into())
                 }
                 _ => panic!(),
             },
@@ -623,7 +665,107 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                 },
             }
         }),
-        Term::Duplication { .. } => todo!(),
+        Term::Duplication {
+            binder,
+            expression,
+            body,
+            ..
+        } => Term::Duplication {
+            binder,
+            expression: Box::new(add_ui(*expression, &sender)),
+            body: Box::new(add_ui(*body, &sender)),
+            annotation: {
+                let mutations = Rc::new(RefCell::new(vec![]));
+
+                let container = document.create_element("div").unwrap();
+                container.class_list().add_1("duplication").unwrap();
+
+                let span = document.create_element("span").unwrap();
+                span.class_list().add_1("duplication-inner").unwrap();
+
+                span.set_attribute("contenteditable", "true").unwrap();
+                span.set_attribute("tabindex", "0").unwrap();
+                configure_contenteditable(&span);
+
+                let closure = Closure::wrap(Box::new({
+                    let span = span.clone();
+                    let mutations = mutations.clone();
+                    let sender = RefCell::new(sender.clone());
+                    move |_| {
+                        mutations.borrow_mut().push(DuplicationMutation::Update(
+                            span.text_content().unwrap_or("".to_owned()),
+                        ));
+                        let _ = sender.borrow_mut().try_send(());
+                    }
+                }) as Box<dyn FnMut(JsValue)>);
+
+                span.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref())
+                    .unwrap();
+
+                let focus_closure = Closure::wrap(Box::new({
+                    let mutations = mutations.clone();
+                    let span = span.clone();
+                    let sender = RefCell::new(sender.clone());
+                    move |_| {
+                        mutations.borrow_mut().push(DuplicationMutation::Focus);
+                        focus_contenteditable(&span, true);
+                        let _ = sender.borrow_mut().try_send(());
+                    }
+                }) as Box<dyn FnMut(JsValue)>);
+
+                span.add_event_listener_with_callback(
+                    "focus",
+                    focus_closure.as_ref().unchecked_ref(),
+                )
+                .unwrap();
+
+                let keydown_closure = Closure::wrap(Box::new({
+                    let mutations = mutations.clone();
+                    let span = span.clone();
+                    let container = container.clone();
+                    let sender = RefCell::new(sender.clone());
+                    move |e: JsValue| {
+                        let e: KeyboardEvent = e.dyn_into().unwrap();
+                        e.stop_propagation();
+                        if (e.code() == "Backspace" || e.code() == "Delete")
+                            && span.text_content().unwrap_or("".into()).len() == 0
+                        {
+                            mutations.borrow_mut().push(DuplicationMutation::Remove);
+                            container.remove();
+                            let _ = sender.borrow_mut().try_send(());
+                        }
+                    }
+                }) as Box<dyn FnMut(JsValue)>);
+
+                span.add_event_listener_with_callback(
+                    "keydown",
+                    keydown_closure.as_ref().unchecked_ref(),
+                )
+                .unwrap();
+
+                let expression = document.create_element("span").unwrap();
+                expression
+                    .class_list()
+                    .add_1("duplication-expression")
+                    .unwrap();
+
+                let body = document.create_element("span").unwrap();
+                body.class_list().add_1("duplication-body").unwrap();
+
+                container.append_child(&span).unwrap();
+                container.append_child(&expression).unwrap();
+                container.append_child(&body).unwrap();
+
+                UiSection {
+                    variant: UiSectionVariance::Duplication {
+                        mutations,
+                        closures: Rc::new(vec![closure, keydown_closure, focus_closure]),
+                        container,
+                        span,
+                    },
+                }
+            },
+        },
         Term::Reference(name, _) => Term::Reference(name, {
             let mutations = Rc::new(RefCell::new(vec![]));
 
@@ -920,6 +1062,15 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                 Term::Put(Box::new(Term::Hole(())), ()),
                                 &sender.borrow().clone(),
                             ))),
+                            'd' => Some(HoleMutation::Replace(add_ui(
+                                Term::Duplication {
+                                    binder: None,
+                                    expression: Box::new(Term::Hole(())),
+                                    body: Box::new(Term::Hole(())),
+                                    annotation: (),
+                                },
+                                &sender.borrow().clone(),
+                            ))),
                             _ => None,
                         };
                         if let Some(m) = mutation {
@@ -1022,7 +1173,18 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
             let annotation = cursor.annotation();
             annotation.render(node, &Cursor::Reference(cursor.clone()))?;
         }
-        Cursor::Duplication(_) => todo!(),
+        Cursor::Duplication(cursor) => {
+            let annotation = cursor.annotation();
+
+            let node = annotation
+                .render(node, &Cursor::Duplication(cursor.clone()))?
+                .unwrap();
+
+            let expression_node = node.child_nodes().get(1).unwrap();
+            let body_node = node.child_nodes().get(2).unwrap();
+            render_to(&cursor.clone().expression(), &expression_node)?;
+            render_to(&cursor.clone().body(), &body_node)?;
+        }
         Cursor::Universe(cursor) => {
             let annotation = cursor.annotation();
             annotation.render(node, &Cursor::Universe(cursor.clone()))?;
@@ -1245,7 +1407,65 @@ fn apply_mutations(
 
             cursor
         }
-        Cursor::Duplication(_) => todo!(),
+        Cursor::Duplication(c) => {
+            let cursor = c.clone().body();
+            let body: Term<_> = apply_mutations(cursor, focused, sender)?.into();
+
+            let cursor = c.clone().expression();
+            let expression: Term<_> = apply_mutations(cursor, focused, sender)?.into();
+
+            let mutations: Vec<_> = match &c.annotation().variant {
+                UiSectionVariance::Duplication { mutations, .. } => {
+                    mutations.borrow_mut().drain(..).collect()
+                }
+                _ => panic!(),
+            };
+
+            let mut c = c.with_body(body);
+            c = c.with_expression(expression);
+
+            for mutation in &mutations {
+                match mutation {
+                    DuplicationMutation::Update(name) => {
+                        c = c.with_binder(if name.is_empty() {
+                            None
+                        } else {
+                            Some(name.clone())
+                        });
+                    }
+
+                    _ => {}
+                }
+            }
+
+            let mut c = Cursor::Duplication(c);
+
+            for mutation in &mutations {
+                match mutation {
+                    DuplicationMutation::Remove => {
+                        c = Cursor::Hole(match c {
+                            Cursor::Duplication(cursor) => {
+                                cursor.into_hole(ui_section(Term::Hole(()), sender))
+                            }
+                            _ => todo!(),
+                        });
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            for mutation in mutations {
+                match mutation {
+                    DuplicationMutation::Focus => {
+                        *focused = Some(c.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            c
+        }
         Cursor::Universe(cursor) => {
             let mutations: Vec<_> = match &cursor.annotation().variant {
                 UiSectionVariance::Universe { mutations, .. } => {
@@ -1499,6 +1719,7 @@ impl Scratchpad {
             UiSectionVariance::Universe { p, .. } => p,
             UiSectionVariance::Wrap { container, .. } => container,
             UiSectionVariance::Put { container, .. } => container,
+            UiSectionVariance::Duplication { span, .. } => span,
         };
         el.add_event_listener_with_callback(
             "cut",
@@ -1539,6 +1760,7 @@ impl Scratchpad {
             UiSectionVariance::Universe { p, .. } => p,
             UiSectionVariance::Wrap { container, .. } => container,
             UiSectionVariance::Put { container, .. } => container,
+            UiSectionVariance::Duplication { span, .. } => span,
         };
         el.remove_event_listener_with_callback(
             "cut",

@@ -505,6 +505,28 @@ impl<T> DuplicationCursor<T> {
         )
     }
 
+    pub fn with_expression(mut self, term: Term<T>) -> Self {
+        self.expression = term;
+        self
+    }
+
+    pub fn with_body(mut self, term: Term<T>) -> Self {
+        self.body = term;
+        self
+    }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            up: self.up,
+            annotation,
+        }
+    }
+
+    pub fn with_binder(mut self, binder: Option<String>) -> Self {
+        self.binder = binder;
+        self
+    }
+
     pub fn body(self) -> Cursor<T> {
         Cursor::from_term_and_path(
             self.body,
@@ -1015,6 +1037,19 @@ impl<T: Clone> Iterator for Context<T> {
 
         let r = loop {
             if let Some(binder) = {
+                if match c.path() {
+                    Path::DuplicationExpression { .. } => true,
+                    Path::FunctionArgumentType { .. } => true,
+                    _ => false,
+                } && {
+                    let mut c = c.clone();
+                    c = c.ascend();
+                    c.is_top()
+                } {
+                    self.done = true;
+                    return None;
+                }
+
                 let binder = match &c {
                     Cursor::Lambda(cursor) => Some(cursor.name().map(|a| a.to_owned())),
                     Cursor::Duplication(cursor) => Some(cursor.binder().map(|a| a.to_owned())),
@@ -1025,6 +1060,19 @@ impl<T: Clone> Iterator for Context<T> {
                     _ => None,
                 };
                 self.done = c.is_top();
+
+                loop {
+                    match c.path() {
+                        Path::DuplicationExpression { .. } => {
+                            c = c.ascend();
+                        }
+                        Path::FunctionArgumentType { .. } => {
+                            c = c.ascend();
+                        }
+                        _ => break,
+                    }
+                }
+
                 c = c.ascend();
                 binder
             } {
