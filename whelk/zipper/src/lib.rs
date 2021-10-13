@@ -637,6 +637,18 @@ impl<T> WrapCursor<T> {
         )
     }
 
+    pub fn with_term(mut self, term: Term<T>) -> Self {
+        self.term = term;
+        self
+    }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            annotation,
+            up: self.up,
+        }
+    }
+
     pub fn ascend(self) -> Cursor<T> {
         Cursor::ascend_helper(self.up, Term::Wrap(Box::new(self.term), self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))

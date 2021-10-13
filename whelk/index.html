@@ -30,11 +30,12 @@
             font-size: 16px;
             line-height: 24px;
             letter-spacing: -0.006em;
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+            --font-stack: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
             --cap-height: 0.7272727272727273;
             --font-size: 16px;
             --line-height: 1.5;
             color: rgba(255, 255, 255, 0.9);
+            font-family: var(--font-stack);
             --info-color: #5F819D;
             background: black;
         }
@@ -147,6 +148,10 @@
             margin-top: 16px;
         }
         
+        .scratchpad p {
+            padding-top: 0;
+        }
+        
         p.lambda::before {
             content: 'λ ';
             color: #8C9440;
@@ -193,11 +198,13 @@
         
         .application::before {
             content: '(';
+            display: inline-block;
             color: #8C9440;
         }
         
         .application::after {
             content: ')';
+            display: inline-block;
             color: #8C9440;
         }
         
@@ -209,24 +216,67 @@
             content: ']';
         }
         
-        .application-argument::before {
+        .application-function::after {
             content: '\00a0';
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased)::before {
-            content: '';
-        }
-        
-        .application:not(.erased)>.application-argument>.application:not(.erased)::after {
-            content: '';
-        }
-        
-        .application.erased>.application-argument>.application.erased::before {
-            content: '';
-        }
-        
+        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)::before,
+        .application:not(.erased)>.application-argument>.application:not(.erased)::after,
+        .application.erased>.application-argument>.application.erased:not(:focus)::before,
         .application.erased>.application-argument>.application.erased::after {
             content: '';
+            outline: none;
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased):focus::after,
+        .application.erased>.application-argument>.application.erased:focus::after {
+            content: '\00a0';
+            position: absolute;
+            outline: 1px solid rgba(255, 255, 255, 0.9);
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased)>.application-argument::before,
+        .application.erased>.application-argument>.application.erased>.application-argument::before {
+            content: '';
+        }
+        
+        *:not(.application-argument)>.application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer::before,
+        *:not(.application-argument)>.application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer::before {
+            margin-left: -2ch;
+        }
+        
+        *:not(.application-argument)>.application:not(.erased)>.application-argument>.application:not(.erased):not(:focus),
+        *:not(.application-argument)>.application.erased>.application-argument>.application.erased:not(:focus) {
+            margin-left: 1ch;
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer::before,
+        .application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer::before {
+            content: '\00a0';
+            display: inline-block;
+            margin-left: -1ch;
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased):focus::before,
+        .application.erased>.application-argument>.application.erased:focus::before {
+            margin-left: -1ch;
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus):hover>.application-spacer::before {
+            content: '(';
+            color: #8C9440;
+            opacity: 0.5;
+        }
+        
+        .application.erased>.application-argument>.application.erased:not(:focus):hover>.application-spacer::before {
+            content: '[';
+            color: #8C9440;
+            opacity: 0.5;
+        }
+        
+        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer:hover::before,
+        .application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer:hover::before {
+            opacity: 1;
         }
         
         .lambda {
@@ -250,17 +300,24 @@
             content: '○';
         }
         
+        * {
+            outline: none;
+        }
+        
         [contenteditable]:hover,
         .application:hover::before,
         .application:hover::after,
-        .universe:hover {
+        .universe:hover,
+        .wrap-inner:hover::before,
+        .application-spacer:hover::before {
             outline: 1px solid rgba(255, 255, 255, 0.5);
         }
         
         [contenteditable]:focus,
         .application:focus::before,
         .application:focus::after,
-        .universe:focus {
+        .universe:focus,
+        .wrap:focus>.wrap-inner::before {
             outline: 1px solid rgba(255, 255, 255, 0.9);
         }
         
@@ -278,7 +335,25 @@
         
         .universe::before {
             content: '𝑈';
-            color: #B294BB;
+            color: #8ABEB7;
+        }
+        
+        .reference:empty::after {
+            content: '\00a0';
+        }
+        
+        .wrap {
+            display: inline-block;
+        }
+        
+        .wrap-inner::before {
+            content: '\'';
+            color: #8ABEB7;
+            display: inline-block;
+        }
+        
+        .wrap-inner {
+            display: inline-block;
         }
     </style>
 

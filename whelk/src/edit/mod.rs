@@ -7,43 +7,54 @@ use futures::{
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, Node};
+use web_sys::{ClipboardEvent, Element, FocusEvent, HtmlElement, KeyboardEvent, Node};
 use zipper::{Cursor, Term};
 
-#[derive(Clone, Debug)]
-pub enum ReferenceMutation {
-    Update(String),
-    Focus,
-    Remove,
-}
+mod mutations {
+    use super::{Term, UiSection};
 
-#[derive(Clone, Debug)]
-pub enum LambdaMutation {
-    Update(String),
-    Focus,
-    Remove,
-    ToggleErased,
-}
+    #[derive(Clone, Debug)]
+    pub enum ReferenceMutation {
+        Update(String),
+        Focus,
+        Remove,
+    }
 
-#[derive(Clone, Debug)]
-pub enum HoleMutation {
-    Focus,
-    Replace(Term<UiSection>),
-    ToParent,
-}
+    #[derive(Clone, Debug)]
+    pub enum LambdaMutation {
+        Update(String),
+        Focus,
+        Remove,
+        ToggleErased,
+    }
 
-#[derive(Clone, Debug)]
-pub enum ApplicationMutation {
-    Focus,
-    Remove,
-    ToggleErased,
-}
+    #[derive(Clone, Debug)]
+    pub enum HoleMutation {
+        Focus,
+        Replace(Term<UiSection>),
+        ToParent,
+    }
 
-#[derive(Clone, Debug)]
-pub enum UniverseMutation {
-    Focus,
-    Remove,
+    #[derive(Clone, Debug)]
+    pub enum ApplicationMutation {
+        Focus,
+        Remove,
+        ToggleErased,
+    }
+
+    #[derive(Clone, Debug)]
+    pub enum UniverseMutation {
+        Focus,
+        Remove,
+    }
+
+    #[derive(Clone, Debug)]
+    pub enum WrapMutation {
+        Focus,
+        Remove,
+    }
 }
+pub use mutations::*;
 
 #[allow(dead_code)]
 fn focus_contenteditable(p: &Element, always: bool) {
@@ -108,6 +119,12 @@ pub enum UiSectionVariance {
         mutations: Rc<RefCell<Vec<UniverseMutation>>>,
         closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
     },
+    Wrap {
+        container: Element,
+        content: Element,
+        mutations: Rc<RefCell<Vec<WrapMutation>>>,
+        closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -144,18 +161,18 @@ impl UiSection {
                 p.remove();
                 mutations.borrow_mut().push(ReferenceMutation::Remove)
             }
-            UiSectionVariance::Hole {
-                p,
-                mutations,
-                closures,
-            } => {}
-            UiSectionVariance::Universe {
-                p,
-                mutations,
-                closures,
-            } => {
+            UiSectionVariance::Hole { .. } => {}
+            UiSectionVariance::Universe { p, mutations, .. } => {
                 p.remove();
                 mutations.borrow_mut().push(UniverseMutation::Remove)
+            }
+            UiSectionVariance::Wrap {
+                mutations,
+                container,
+                ..
+            } => {
+                container.remove();
+                mutations.borrow_mut().push(WrapMutation::Remove);
             }
         }
         let _ = sender.clone().try_send(());
@@ -177,6 +194,9 @@ impl UiSection {
             }
             UiSectionVariance::Universe { p, .. } => {
                 focus_element(p, false);
+            }
+            UiSectionVariance::Wrap { container, .. } => {
+                focus_element(container, false);
             }
         }
     }
@@ -283,6 +303,18 @@ impl UiSection {
                     }
 
                     None
+                }
+                _ => panic!(),
+            },
+            UiSectionVariance::Wrap {
+                container, content, ..
+            } => match cursor {
+                Cursor::Wrap(_) => {
+                    if !into.contains(Some(&container)) {
+                        into.append_child(&container)?;
+                    }
+
+                    Some(content.clone().into())
                 }
                 _ => panic!(),
             },
@@ -428,6 +460,10 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
 
                 function.class_list().add_1("application-function").unwrap();
 
+                let spacer = document.create_element("span").unwrap();
+                spacer.class_list().add_1("application-spacer").unwrap();
+
+                container.append_child(&spacer).unwrap();
                 container.append_child(&function).unwrap();
                 container.append_child(&argument).unwrap();
 
@@ -552,11 +588,33 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
             p.add_event_listener_with_callback("blur", blur_closure.as_ref().unchecked_ref())
                 .unwrap();
 
+            let keydown_closure = Closure::wrap(Box::new({
+                let mutations = mutations.clone();
+                let p = p.clone();
+                let sender = RefCell::new(sender.clone());
+                move |e: JsValue| {
+                    let e: KeyboardEvent = e.dyn_into().unwrap();
+                    if document.active_element().unwrap() == p {
+                        e.stop_propagation();
+                        if (e.code() == "Backspace" || e.code() == "Delete")
+                            && p.text_content().unwrap_or("".into()).is_empty()
+                        {
+                            p.dyn_ref::<HtmlElement>().unwrap().blur().unwrap();
+                        } else if e.code() == "Escape" {
+                            p.dyn_ref::<HtmlElement>().unwrap().blur().unwrap();
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+
+            p.add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
+                .unwrap();
+
             UiSection {
                 variant: UiSectionVariance::Reference {
                     p,
                     mutations,
-                    closures: Rc::new(vec![closure, focus_closure, blur_closure]),
+                    closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),
                 },
             }
         }),
@@ -612,7 +670,70 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
             }
         }),
         Term::Function { .. } => todo!(),
-        Term::Wrap(_, _) => todo!(),
+        Term::Wrap(term, ()) => Term::Wrap(Box::new(add_ui(*term, &sender)), {
+            let mutations = Rc::new(RefCell::new(vec![]));
+
+            let container = document.create_element("div").unwrap();
+            container.class_list().add_1("wrap").unwrap();
+            container.set_attribute("tabindex", "0").unwrap();
+
+            let span = document.create_element("span").unwrap();
+            span.class_list().add_1("wrap-inner").unwrap();
+
+            let content = document.create_element("span").unwrap();
+            content.class_list().add_1("wrap-content").unwrap();
+
+            container.append_child(&span).unwrap();
+            container.append_child(&content).unwrap();
+
+            let focus_closure = Closure::wrap(Box::new({
+                let mutations = mutations.clone();
+                let container = container.clone();
+                let sender = RefCell::new(sender.clone());
+                move |_| {
+                    mutations.borrow_mut().push(WrapMutation::Focus);
+                    focus_element(&container, true);
+                    let _ = sender.borrow_mut().try_send(());
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+
+            container
+                .add_event_listener_with_callback("focus", focus_closure.as_ref().unchecked_ref())
+                .unwrap();
+
+            let keydown_closure = Closure::wrap(Box::new({
+                let mutations = mutations.clone();
+                let container = container.clone();
+                let sender = RefCell::new(sender.clone());
+                move |e: JsValue| {
+                    let e: KeyboardEvent = e.dyn_into().unwrap();
+                    if document.active_element().unwrap() == container {
+                        e.stop_propagation();
+                        if e.code() == "Backspace" || e.code() == "Delete" {
+                            mutations.borrow_mut().push(WrapMutation::Remove);
+                            container.remove();
+                            let _ = sender.borrow_mut().try_send(());
+                        }
+                    }
+                }
+            }) as Box<dyn FnMut(JsValue)>);
+
+            container
+                .add_event_listener_with_callback(
+                    "keydown",
+                    keydown_closure.as_ref().unchecked_ref(),
+                )
+                .unwrap();
+
+            UiSection {
+                variant: UiSectionVariance::Wrap {
+                    mutations,
+                    closures: Rc::new(vec![keydown_closure, focus_closure]),
+                    container,
+                    content,
+                },
+            }
+        }),
 
         Term::Hole(()) => Term::Hole(ui_section(Term::Hole(()), sender)),
     }
@@ -691,6 +812,10 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                             ))),
                             'u' => Some(HoleMutation::Replace(add_ui(
                                 Term::Universe(()),
+                                &sender.borrow().clone(),
+                            ))),
+                            'w' => Some(HoleMutation::Replace(add_ui(
+                                Term::Wrap(Box::new(Term::Hole(())), ()),
                                 &sender.borrow().clone(),
                             ))),
                             _ => None,
@@ -778,8 +903,8 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
                 .render(node, &Cursor::Application(cursor.clone()))?
                 .unwrap();
 
-            let function_node = node.child_nodes().get(0).unwrap();
-            let argument_node = node.child_nodes().get(1).unwrap();
+            let function_node = node.child_nodes().get(1).unwrap();
+            let argument_node = node.child_nodes().get(2).unwrap();
             render_to(&cursor.clone().function(), &function_node)?;
             render_to(&cursor.clone().argument(), &argument_node)?;
         }
@@ -794,7 +919,14 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
             annotation.render(node, &Cursor::Universe(cursor.clone()))?;
         }
         Cursor::Function(_) => todo!(),
-        Cursor::Wrap(_) => todo!(),
+        Cursor::Wrap(cursor) => {
+            let annotation = cursor.annotation();
+            let node = annotation
+                .render(node, &Cursor::Wrap(cursor.clone()))?
+                .unwrap();
+
+            render_to(&cursor.clone().term(), &node)?;
+        }
 
         Cursor::Hole(cursor) => {
             let annotation = cursor.annotation();
@@ -1003,7 +1135,46 @@ fn apply_mutations(
             cursor
         }
         Cursor::Function(_) => todo!(),
-        Cursor::Wrap(_) => todo!(),
+        Cursor::Wrap(mut cursor) => {
+            let term: Term<_> = apply_mutations(cursor.clone().term(), focused, sender)?.into();
+
+            cursor = cursor.with_term(term);
+
+            let mutations: Vec<_> = match &cursor.annotation().variant {
+                UiSectionVariance::Wrap { mutations, .. } => {
+                    mutations.borrow_mut().drain(..).collect()
+                }
+                _ => panic!(),
+            };
+
+            let mut cursor = Cursor::Wrap(cursor);
+
+            for mutation in &mutations {
+                match mutation {
+                    WrapMutation::Remove => {
+                        cursor = Cursor::Hole(match cursor {
+                            Cursor::Wrap(cursor) => {
+                                cursor.into_hole(ui_section(Term::Hole(()), sender))
+                            }
+                            _ => todo!(),
+                        });
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            for mutation in mutations {
+                match mutation {
+                    WrapMutation::Focus => {
+                        *focused = Some(cursor.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            cursor
+        }
 
         Cursor::Hole(cursor) => {
             let mutations: Vec<_> = match &cursor.annotation().variant {
@@ -1178,6 +1349,7 @@ impl Scratchpad {
             UiSectionVariance::Reference { p, .. } => p,
             UiSectionVariance::Hole { p, .. } => p,
             UiSectionVariance::Universe { p, .. } => p,
+            UiSectionVariance::Wrap { container, .. } => container,
         };
         el.add_event_listener_with_callback(
             "cut",
@@ -1216,6 +1388,7 @@ impl Scratchpad {
             UiSectionVariance::Reference { p, .. } => p,
             UiSectionVariance::Hole { p, .. } => p,
             UiSectionVariance::Universe { p, .. } => p,
+            UiSectionVariance::Wrap { container, .. } => container,
         };
         el.remove_event_listener_with_callback(
             "cut",
