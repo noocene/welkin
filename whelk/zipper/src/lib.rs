@@ -605,6 +605,10 @@ impl<T> FunctionCursor<T> {
         self.erased
     }
 
+    pub fn erased_mut(&mut self) -> &mut bool {
+        &mut self.erased
+    }
+
     pub fn argument_type(self) -> Cursor<T> {
         Cursor::from_term_and_path(
             self.argument_type,
@@ -617,6 +621,26 @@ impl<T> FunctionCursor<T> {
                 annotation: self.annotation,
             },
         )
+    }
+
+    pub fn with_argument_type(mut self, argument_type: Term<T>) -> Self {
+        self.argument_type = argument_type;
+        self
+    }
+
+    pub fn with_return_type(mut self, return_type: Term<T>) -> Self {
+        self.return_type = return_type;
+        self
+    }
+
+    pub fn with_name(mut self, name: Option<String>) -> Self {
+        self.binder = name;
+        self
+    }
+
+    pub fn with_self_name(mut self, self_name: Option<String>) -> Self {
+        self.self_binder = self_name;
+        self
     }
 
     pub fn return_type(self) -> Cursor<T> {
@@ -646,6 +670,13 @@ impl<T> FunctionCursor<T> {
             },
         )
         .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
+    }
+
+    pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
+        HoleCursor {
+            up: self.up,
+            annotation,
+        }
     }
 }
 

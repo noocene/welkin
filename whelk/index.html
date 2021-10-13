@@ -310,7 +310,8 @@
         .universe:hover,
         .wrap-inner:hover::before,
         .application-spacer:hover::before,
-        .put-inner:hover::before {
+        .put-inner:hover::before,
+        .function:hover::before {
             outline: 1px solid rgba(255, 255, 255, 0.5);
         }
         
@@ -395,6 +396,46 @@
         
         .duplication-body::before {
             content: '\00a0';
+        }
+        
+        .function {
+            display: inline-block;
+        }
+        
+        .function::before {
+            color: #5F819D;
+            display: inline-block;
+            content: '∀';
+        }
+        
+        .function.erased::before {
+            content: 'A';
+        }
+        
+        .function-name,
+        .function-self-name {
+            color: #8ABEB7;
+            display: inline-block;
+        }
+        
+        .function-name:empty::before {
+            content: '□';
+        }
+        
+        .function-name:not(:empty)~.function-argument-type::before {
+            content: ':';
+        }
+        
+        .function-argument-type::before {
+            color: #5F819D;
+        }
+        
+        .function-return-type::before {
+            content: ' ';
+        }
+        
+        .function-self-name:empty::before {
+            content: '□';
         }
     </style>
 
