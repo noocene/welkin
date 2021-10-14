@@ -1,13 +1,17 @@
-#![recursion_limit = "2048"]
 use core_futures_io::FuturesCompat;
+use futures::{task::noop_waker, Future};
 use mincodec::{
     AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, Deserialize, MinCodec,
     MinCodecRead, MinCodecWrite, Serialize,
 };
+use std::fmt::{self, Debug};
+pub mod dynamic;
 use welkin_core::term::{self, Index};
 
+use self::dynamic::{Dynamic, DynamicTerm};
+
 #[derive(Debug, Clone, MinCodec)]
-#[bounds(T)]
+#[bounds(T, Dynamic<T>)]
 pub enum Term<T = ()> {
     Lambda {
         erased: bool,
@@ -42,9 +46,73 @@ pub enum Term<T = ()> {
     Wrap(Box<Term<T>>, T),
 
     Hole(T),
+
+    Dynamic(Dynamic<T>),
 }
 
 impl<T> Term<T> {
+    pub fn clear_annotation(self) -> Term<()> {
+        match self {
+            Term::Lambda {
+                erased, name, body, ..
+            } => Term::Lambda {
+                erased,
+                name,
+                body: Box::new(body.clear_annotation()),
+                annotation: (),
+            },
+            Term::Application {
+                erased,
+                function,
+                argument,
+                ..
+            } => Term::Application {
+                erased,
+                function: Box::new(function.clear_annotation()),
+                argument: Box::new(argument.clear_annotation()),
+                annotation: (),
+            },
+            Term::Put(term, _) => Term::Put(Box::new(term.clear_annotation()), ()),
+            Term::Duplication {
+                binder,
+                expression,
+                body,
+                ..
+            } => Term::Duplication {
+                binder,
+                expression: Box::new(expression.clear_annotation()),
+                body: Box::new(body.clear_annotation()),
+                annotation: (),
+            },
+            Term::Reference(name, _) => Term::Reference(name, ()),
+
+            Term::Universe(_) => Term::Universe(()),
+            Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                ..
+            } => Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new(argument_type.clear_annotation()),
+                return_type: Box::new(return_type.clear_annotation()),
+                annotation: (),
+            },
+            Term::Wrap(term, _) => Term::Wrap(Box::new(term.clear_annotation()), ()),
+
+            Term::Hole(_) => Term::Hole(()),
+
+            Term::Dynamic(Dynamic { term, .. }) => Term::Dynamic(Dynamic {
+                annotation: (),
+                term: term.clear_annotation(),
+            }),
+        }
+    }
+
     pub fn try_map_annotation<U, E, F: Fn(T) -> Result<U, E> + Clone>(
         self,
         f: F,
@@ -111,13 +179,68 @@ impl<T> Term<T> {
             ),
 
             Term::Hole(annotation) => Term::Hole(f(annotation)?),
+
+            Term::Dynamic(Dynamic { .. }) => unimplemented!(),
         })
     }
+}
+
+pub fn encode<T: MinCodecWrite>(
+    data: T,
+) -> Result<Vec<u8>, AsyncWriterError<std::io::Error, <T::Serialize as Serialize>::Error>>
+where
+    T::Serialize: Unpin,
+{
+    let mut buffer = vec![];
+
+    let fut = async {
+        AsyncWriter::new(FuturesCompat::new(&mut buffer), data).await?;
+
+        Ok(buffer)
+    };
+
+    let waker = noop_waker();
+    let mut context = futures::task::Context::from_waker(&waker);
+
+    let mut fut = Box::pin(fut);
+
+    let data = loop {
+        match fut.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(data) => break data,
+            std::task::Poll::Pending => {}
+        }
+    };
+
+    data
+}
+
+pub fn decode<T: MinCodecRead>(
+    buffer: &[u8],
+) -> Result<T, AsyncReaderError<std::io::Error, <T::Deserialize as Deserialize>::Error>> {
+    let fut = async { AsyncReader::<_, T>::new(FuturesCompat::new(buffer)).await };
+
+    let waker = noop_waker();
+    let mut context = futures::task::Context::from_waker(&waker);
+
+    let mut fut = Box::pin(fut);
+
+    let data = loop {
+        match fut.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(data) => break data,
+            std::task::Poll::Pending => {}
+        }
+    };
+
+    data
 }
 
 impl<T: MinCodecWrite + MinCodecRead + Unpin> Term<T>
 where
     T::Serialize: Unpin,
+    T::Deserialize: Unpin,
+    Dynamic<T>: MinCodec,
+    <Dynamic<T> as MinCodecWrite>::Serialize: Unpin,
+    <Dynamic<T> as MinCodecRead>::Deserialize: Unpin,
 {
     pub async fn encode(
         self,
@@ -240,6 +363,30 @@ pub enum Path<T = ()> {
         up: Box<Path<T>>,
         annotation: T,
     },
+
+    Dynamic {
+        up: Box<Path<T>>,
+        branch: Box<dyn BranchWrapper<T>>,
+        annotation: T,
+    },
+}
+
+pub trait BranchWrapper<T> {
+    fn reconstruct(self: Box<Self>, term: Term<T>) -> Box<dyn DynamicTerm<T>>;
+    fn box_clone(&self) -> Box<dyn BranchWrapper<T>>;
+    fn debug(&self, f: &mut fmt::Formatter) -> fmt::Result;
+}
+
+impl<T: fmt::Debug> Debug for Box<dyn BranchWrapper<T>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.debug(f)
+    }
+}
+
+impl<T: Clone> Clone for Box<dyn BranchWrapper<T>> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
 }
 
 impl<T> Path<T> {
@@ -727,6 +874,10 @@ pub struct HoleCursor<T> {
 }
 
 impl<T> HoleCursor<T> {
+    pub fn new(up: Path<T>, annotation: T) -> Self {
+        HoleCursor { up, annotation }
+    }
+
     pub fn annotation(&self) -> &T {
         &self.annotation
     }
@@ -742,6 +893,13 @@ impl<T> HoleCursor<T> {
 }
 
 #[derive(Debug, Clone)]
+pub struct DynamicCursor<T> {
+    pub up: Path<T>,
+    pub annotation: T,
+    pub term: Box<dyn DynamicTerm<T>>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Cursor<T = ()> {
     Lambda(LambdaCursor<T>),
     Application(ApplicationCursor<T>),
@@ -754,6 +912,8 @@ pub enum Cursor<T = ()> {
     Wrap(WrapCursor<T>),
 
     Hole(HoleCursor<T>),
+
+    Dynamic(DynamicCursor<T>),
 }
 
 impl<T> Cursor<T> {
@@ -833,6 +993,12 @@ impl<T> Cursor<T> {
             }),
 
             Term::Hole(annotation) => Cursor::Hole(HoleCursor { up, annotation }),
+
+            Term::Dynamic(Dynamic { term, annotation }) => Cursor::Dynamic(DynamicCursor {
+                term,
+                annotation,
+                up,
+            }),
         }
     }
 
@@ -960,6 +1126,16 @@ impl<T> Cursor<T> {
                 up: *up,
                 annotation,
             }),
+
+            Path::Dynamic {
+                up,
+                branch,
+                annotation,
+            } => Cursor::Dynamic(DynamicCursor {
+                up: *up,
+                annotation,
+                term: branch.reconstruct(down),
+            }),
         })
     }
 
@@ -976,6 +1152,8 @@ impl<T> Cursor<T> {
             Cursor::Wrap(cursor) => cursor.ascend(),
 
             Cursor::Hole(cursor) => cursor.ascend(),
+
+            Cursor::Dynamic(cursor) => cursor.ascend(),
         }
     }
 
@@ -992,6 +1170,8 @@ impl<T> Cursor<T> {
             Cursor::Wrap(cursor) => cursor.annotation(),
 
             Cursor::Hole(cursor) => cursor.annotation(),
+
+            Cursor::Dynamic(cursor) => cursor.annotation(),
         }
     }
 
@@ -1010,6 +1190,7 @@ impl<T> Cursor<T> {
             Cursor::Function(cursor) => &cursor.up,
             Cursor::Wrap(cursor) => &cursor.up,
             Cursor::Hole(cursor) => &cursor.up,
+            Cursor::Dynamic(cursor) => &cursor.up,
         }
     }
 
@@ -1024,6 +1205,7 @@ impl<T> Cursor<T> {
             Cursor::Function(cursor) => &mut cursor.up,
             Cursor::Wrap(cursor) => &mut cursor.up,
             Cursor::Hole(cursor) => &mut cursor.up,
+            Cursor::Dynamic(cursor) => &mut cursor.up,
         }
     }
 
@@ -1155,6 +1337,11 @@ impl<T> From<Cursor<T>> for Term<T> {
             Cursor::Wrap(cursor) => Term::Wrap(Box::new(cursor.term), cursor.annotation),
 
             Cursor::Hole(cursor) => Term::Hole(cursor.annotation),
+
+            Cursor::Dynamic(cursor) => Term::Dynamic(Dynamic {
+                annotation: cursor.annotation,
+                term: cursor.term,
+            }),
         }
     }
 }
@@ -1200,6 +1387,8 @@ impl From<Cursor> for term::Term<String> {
             Cursor::Wrap(cursor) => term::Term::Wrap(Box::new(cursor.term().into())),
 
             Cursor::Hole(_) => panic!(),
+
+            Cursor::Dynamic(cursor) => Cursor::from(cursor.expand()).into(),
         }
     }
 }

@@ -1,5 +1,6 @@
-use std::{cell::RefCell, convert::Infallible, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
+use downcast_rs::{impl_downcast, Downcast};
 use futures::{
     channel::mpsc::{channel, Receiver, Sender},
     task::{noop_waker, Context},
@@ -7,8 +8,11 @@ use futures::{
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{ClipboardEvent, Element, FocusEvent, HtmlElement, KeyboardEvent, Node};
+use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, Node};
 use zipper::{Cursor, Term};
+
+pub mod dynamic;
+pub mod zipper;
 
 mod mutations {
     use super::{Term, UiSection};
@@ -78,6 +82,10 @@ mod mutations {
     }
 }
 pub use mutations::*;
+
+use crate::edit::dynamic::Def;
+
+use self::zipper::dynamic::Dynamic;
 
 #[allow(dead_code)]
 fn focus_contenteditable(p: &Element, always: bool) {
@@ -168,9 +176,32 @@ pub enum UiSectionVariance {
         closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
         mutations: Rc<RefCell<Vec<DuplicationMutation>>>,
     },
+    Dynamic(Box<dyn DynamicVariance>),
 }
 
-#[derive(Clone, Debug)]
+impl Clone for Box<dyn DynamicVariance> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
+impl fmt::Debug for Box<dyn DynamicVariance> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.debug(f)
+    }
+}
+
+pub trait DynamicVariance: Downcast {
+    fn box_clone(&self) -> Box<dyn DynamicVariance>;
+    fn debug(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    fn focus(&self);
+    fn remove(&self);
+    fn focused_el(&self) -> &Element;
+}
+
+impl_downcast!(DynamicVariance);
+
+#[derive(Debug, Clone)]
 pub struct UiSection {
     variant: UiSectionVariance,
 }
@@ -179,28 +210,23 @@ impl UiSection {
     pub fn trigger_remove(&self, sender: &Sender<()>) {
         match &self.variant {
             UiSectionVariance::Lambda {
-                p,
-                span,
                 container,
-                closures,
                 mutations,
+                ..
             } => {
                 container.dyn_ref::<Element>().unwrap().remove();
                 mutations.borrow_mut().push(LambdaMutation::Remove)
             }
             UiSectionVariance::Application {
                 container,
-                closures,
+
                 mutations,
+                ..
             } => {
                 container.remove();
                 mutations.borrow_mut().push(ApplicationMutation::Remove)
             }
-            UiSectionVariance::Reference {
-                p,
-                mutations,
-                closures,
-            } => {
+            UiSectionVariance::Reference { p, mutations, .. } => {
                 p.remove();
                 mutations.borrow_mut().push(ReferenceMutation::Remove)
             }
@@ -240,6 +266,9 @@ impl UiSection {
             } => {
                 container.remove();
                 mutations.borrow_mut().push(FunctionMutation::Remove);
+            }
+            UiSectionVariance::Dynamic(variance) => {
+                variance.remove();
             }
         }
         let _ = sender.clone().try_send(());
@@ -285,6 +314,9 @@ impl UiSection {
                     },
                     false,
                 );
+            }
+            UiSectionVariance::Dynamic(variance) => {
+                variance.focus();
             }
         }
     }
@@ -477,6 +509,12 @@ impl UiSection {
                 }
                 _ => panic!(),
             },
+            UiSectionVariance::Dynamic(_) => match cursor {
+                Cursor::Dynamic(_) => {
+                    todo!()
+                }
+                _ => panic!(),
+            },
         })
     }
 }
@@ -497,7 +535,7 @@ pub struct Scratchpad {
     clipboard_event_handler: Closure<dyn FnMut(JsValue)>,
 }
 
-fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
+fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
     let document = web_sys::window().unwrap().document().unwrap();
 
     match term {
@@ -683,7 +721,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                 }
             },
         },
-        Term::Put(term, ()) => Term::Put(Box::new(add_ui(*term, &sender)), {
+        Term::Put(term, _) => Term::Put(Box::new(add_ui(*term, &sender)), {
             let mutations = Rc::new(RefCell::new(vec![]));
 
             let container = document.create_element("div").unwrap();
@@ -911,9 +949,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                 .unwrap();
 
             let keydown_closure = Closure::wrap(Box::new({
-                let mutations = mutations.clone();
                 let p = p.clone();
-                let sender = RefCell::new(sender.clone());
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
                     if document.active_element().unwrap() == p {
@@ -941,7 +977,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
             }
         }),
 
-        Term::Universe(()) => Term::Universe({
+        Term::Universe(_) => Term::Universe({
             let mutations = Rc::new(RefCell::new(vec![]));
 
             let p = document.create_element("p").unwrap();
@@ -1191,7 +1227,7 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
                 }
             },
         },
-        Term::Wrap(term, ()) => Term::Wrap(Box::new(add_ui(*term, &sender)), {
+        Term::Wrap(term, _) => Term::Wrap(Box::new(add_ui(*term, &sender)), {
             let mutations = Rc::new(RefCell::new(vec![]));
 
             let container = document.create_element("div").unwrap();
@@ -1256,7 +1292,15 @@ fn add_ui(term: Term, sender: &Sender<()>) -> Term<UiSection> {
             }
         }),
 
-        Term::Hole(()) => Term::Hole(ui_section(Term::Hole(()), sender)),
+        Term::Hole(_) => Term::Hole(ui_section(Term::Hole(()), sender)),
+
+        Term::Dynamic(cursor) => {
+            let (_, term) = cursor.into_inner();
+
+            let (annotation, term) = term.add_ui(sender);
+
+            Term::Dynamic(Dynamic::new(annotation, term))
+        }
     }
 }
 
@@ -1264,14 +1308,6 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
     let document = web_sys::window().unwrap().document().unwrap();
 
     match term {
-        Term::Lambda { .. } => todo!(),
-        Term::Application { .. } => todo!(),
-        Term::Put(_, _) => todo!(),
-        Term::Duplication { .. } => todo!(),
-        Term::Reference(_, _) => todo!(),
-        Term::Universe(_) => todo!(),
-        Term::Function { .. } => todo!(),
-        Term::Wrap(_, _) => todo!(),
         Term::Hole(()) => {
             let mutations = Rc::new(RefCell::new(vec![]));
 
@@ -1374,6 +1410,13 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                 },
                                 &sender.borrow().clone(),
                             ))),
+                            'D' => Some(HoleMutation::Replace(add_ui(
+                                Term::Dynamic(Dynamic::new(
+                                    (),
+                                    Def::new(Term::Hole(()), Term::Hole(()), None),
+                                )),
+                                &sender.borrow().clone(),
+                            ))),
                             _ => None,
                         };
                         if let Some(m) = mutation {
@@ -1440,6 +1483,7 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 },
             }
         }
+        _ => todo!(),
     }
 }
 
@@ -1515,6 +1559,19 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
         Cursor::Hole(cursor) => {
             let annotation = cursor.annotation();
             annotation.render(node, &Cursor::Hole(cursor.clone()))?;
+        }
+
+        Cursor::Dynamic(cursor) => {
+            cursor.term.render_to(
+                &cursor.up,
+                match &cursor.annotation {
+                    UiSection {
+                        variant: UiSectionVariance::Dynamic(variance),
+                    } => variance.as_ref(),
+                    _ => panic!(),
+                },
+                node,
+            )?;
         }
     }
 
@@ -1968,6 +2025,22 @@ fn apply_mutations(
 
             cursor
         }
+
+        Cursor::Dynamic(cursor) => {
+            let term = cursor.term;
+
+            term.apply_mutations(
+                cursor.up,
+                match cursor.annotation {
+                    UiSection {
+                        variant: UiSectionVariance::Dynamic(variance),
+                    } => variance,
+                    _ => panic!(),
+                },
+                focused,
+                sender,
+            )?
+        }
     })
 }
 
@@ -1984,9 +2057,7 @@ impl Scratchpad {
                 let copy = |f: Box<dyn Fn(String)>| {
                     let data = &mut *data.borrow_mut();
 
-                    let term: Term<()> = Term::<UiSection>::from(data.clone())
-                        .try_map_annotation(|_| Ok::<_, Infallible>(()))
-                        .unwrap();
+                    let term: Term<()> = Term::<UiSection>::from(data.clone()).clear_annotation();
 
                     let waker = noop_waker();
                     let mut context = Context::from_waker(&waker);
@@ -2122,6 +2193,7 @@ impl Scratchpad {
                     span
                 }
             }
+            UiSectionVariance::Dynamic(variance) => variance.focused_el(),
         };
         el.add_event_listener_with_callback(
             "cut",
@@ -2175,6 +2247,7 @@ impl Scratchpad {
                     span
                 }
             }
+            UiSectionVariance::Dynamic(variance) => variance.focused_el(),
         };
         el.remove_event_listener_with_callback(
             "cut",

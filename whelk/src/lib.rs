@@ -11,7 +11,7 @@ use std::{cell::RefCell, error::Error, mem::replace, panic, rc::Rc};
 
 use bincode::deserialize;
 use bindings::w;
-use edit::Scratchpad;
+use edit::{zipper, Scratchpad};
 use evaluator::Evaluator;
 use futures::{channel::mpsc::unbounded, SinkExt, Stream, StreamExt};
 use wasm_bindgen::{prelude::*, JsCast};

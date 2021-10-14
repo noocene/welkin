@@ -373,28 +373,37 @@
             display: inline-block;
         }
         
-        .duplication {
+        .duplication,
+        .def {
             display: inline-block;
         }
         
-        .duplication::before {
+        .duplication-inner,
+        .def-inner {
             color: #B5BD68;
+            display: inline-block;
         }
         
-        .duplication-inner {
-            color: #B5BD68;
-        }
-        
-        .duplication-inner:empty::before {
+        .duplication-inner:empty::before,
+        .def-inner:empty::before {
             content: '□';
         }
         
         .duplication-expression::before {
             content: ' ← ';
+        }
+        
+        .def-expression::before {
+            content: ' ⇐ ';
+        }
+        
+        .duplication-expression::before,
+        .def-expression::before {
             color: #B5BD68;
         }
         
-        .duplication-body::before {
+        .duplication-body::before,
+        .def-body::before {
             content: '\00a0';
         }
         
