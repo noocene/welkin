@@ -7,13 +7,20 @@ mod bindings;
 mod edit;
 mod evaluator;
 
-use std::{cell::RefCell, error::Error, mem::replace, panic, rc::Rc};
+use std::{cell::RefCell, error::Error, mem::replace, panic, pin::Pin, rc::Rc};
 
 use bincode::deserialize;
 use bindings::w;
-use edit::{zipper, Scratchpad};
+use edit::{
+    zipper::{self, Cursor},
+    Scratchpad, UiSection,
+};
 use evaluator::Evaluator;
-use futures::{channel::mpsc::unbounded, SinkExt, Stream, StreamExt};
+use futures::{
+    channel::mpsc::unbounded,
+    future::{select, Either},
+    stream, SinkExt, Stream, StreamExt,
+};
 use wasm_bindgen::{prelude::*, JsCast};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlInputElement, KeyboardEvent};
@@ -25,9 +32,19 @@ use async_recursion::async_recursion;
 use crate::{bindings::io::iter::LoopRequest, evaluator::Substitution};
 
 enum Block {
-    Info { header: String, content: String },
-    Printed { data: String },
-    Scratchpad { data: Scratchpad },
+    Info {
+        header: String,
+        content: String,
+    },
+    Printed {
+        data: String,
+    },
+    Scratchpad {
+        data: zipper::Term,
+        on_update: Box<dyn FnMut(&Cursor<UiSection>)>,
+        force_update:
+            Pin<Box<dyn Stream<Item = Box<dyn FnOnce(&mut Scratchpad) -> Option<zipper::Term>>>>>,
+    },
 }
 
 #[wasm_bindgen]
@@ -98,15 +115,49 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
                     wrapper.append_child(&paragraph).unwrap();
                     container.append_child(&wrapper).unwrap();
                 }
-                Block::Scratchpad { mut data } => {
+                Block::Scratchpad {
+                    data,
+                    on_update,
+                    mut force_update,
+                } => {
                     let wrapper = document.create_element("div").unwrap();
                     wrapper.class_list().add_2("scratchpad", "wrapper").unwrap();
                     container.append_child(&wrapper).unwrap();
+
+                    let mut scratchpad = Scratchpad::new(data, wrapper.into());
+                    scratchpad.on_change(on_update);
+
+                    scratchpad.render().unwrap();
+
                     spawn_local(async move {
                         loop {
-                            data.render_to(&wrapper).unwrap();
-                            data.needs_update().await;
-                            data = data.apply_mutations().unwrap();
+                            let data = match select(
+                                Box::pin(scratchpad.needs_update()),
+                                force_update.next(),
+                            )
+                            .await
+                            {
+                                Either::Left(_) => None,
+                                Either::Right((data, _)) => {
+                                    if let Some(data) = data {
+                                        Some(data)
+                                    } else {
+                                        panic!()
+                                    }
+                                }
+                            };
+
+                            if let Some(data) = data {
+                                if let Some(update) = data(&mut scratchpad) {
+                                    scratchpad.force_update(update);
+                                } else {
+                                    continue;
+                                }
+                            }
+
+                            scratchpad = scratchpad.apply_mutations().unwrap();
+
+                            scratchpad.render().unwrap();
                         }
                     });
                 }
@@ -135,11 +186,11 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
             });
         });
 
-        let term = zipper::Term::Hole(());
-
-        let scratchpad = Scratchpad::new(term);
-
-        push_paragraph(Block::Scratchpad { data: scratchpad });
+        push_paragraph(Block::Scratchpad {
+            data: zipper::Term::Hole(()),
+            on_update: Box::new(move |_| {}),
+            force_update: Box::pin(stream::pending()),
+        });
 
         run_io(io, &push_paragraph, &mut receive, &evaluator)
             .await

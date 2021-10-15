@@ -4,32 +4,245 @@ use mincodec::{
     AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, Deserialize, MinCodec,
     MinCodecRead, MinCodecWrite, Serialize,
 };
-use std::fmt::{self, Debug};
+use std::{
+    cell::RefCell,
+    fmt::{self, Debug},
+    rc::Rc,
+};
 pub mod dynamic;
 use welkin_core::term::{self, Index};
 
 use self::dynamic::{Dynamic, DynamicTerm};
 
 #[derive(Debug, Clone, MinCodec)]
-#[bounds(T, Dynamic<T>)]
-pub enum Term<T = ()> {
+#[bounds()]
+pub enum TermData {
     Lambda {
         erased: bool,
         name: Option<String>,
-        body: Box<Term<T>>,
+        body: Box<TermData>,
+    },
+    Application {
+        erased: bool,
+        function: Box<TermData>,
+        argument: Box<TermData>,
+    },
+    Put(Box<TermData>),
+    Duplication {
+        binder: Option<String>,
+        expression: Box<TermData>,
+        body: Box<TermData>,
+    },
+    Reference(String),
+
+    Universe,
+    Function {
+        erased: bool,
+        name: Option<String>,
+        self_name: Option<String>,
+        argument_type: Box<TermData>,
+        return_type: Box<TermData>,
+    },
+    Wrap(Box<TermData>),
+
+    Hole,
+
+    Dynamic(Dynamic<()>),
+}
+
+impl From<Term<()>> for TermData {
+    fn from(term: Term<()>) -> Self {
+        match term {
+            Term::Lambda {
+                erased, name, body, ..
+            } => TermData::Lambda {
+                erased,
+                name,
+                body: Box::new((*body).into()),
+            },
+            Term::Application {
+                erased,
+                function,
+                argument,
+                ..
+            } => TermData::Application {
+                erased,
+                function: Box::new((*function).into()),
+                argument: Box::new((*argument).into()),
+            },
+            Term::Put(term, _) => TermData::Put(Box::new((*term).into())),
+            Term::Duplication {
+                binder,
+                expression,
+                body,
+                ..
+            } => TermData::Duplication {
+                binder,
+                expression: Box::new((*expression).into()),
+                body: Box::new((*body).into()),
+            },
+            Term::Reference(name, _) => TermData::Reference(name),
+            Term::Universe(_) => TermData::Universe,
+            Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                ..
+            } => TermData::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new((*argument_type).into()),
+                return_type: Box::new((*return_type).into()),
+            },
+            Term::Wrap(term, _) => TermData::Wrap(Box::new((*term).into())),
+            Term::Hole(_) => TermData::Hole,
+            Term::Dynamic(data) => TermData::Dynamic(data),
+        }
+    }
+}
+
+impl From<TermData> for Term<()> {
+    fn from(term: TermData) -> Self {
+        match term {
+            TermData::Lambda { erased, name, body } => Term::Lambda {
+                erased,
+                name,
+                body: Box::new((*body).into()),
+                annotation: (),
+            },
+            TermData::Application {
+                erased,
+                function,
+                argument,
+            } => Term::Application {
+                erased,
+                function: Box::new((*function).into()),
+                argument: Box::new((*argument).into()),
+                annotation: (),
+            },
+            TermData::Put(term) => Term::Put(Box::new((*term).into()), ()),
+            TermData::Duplication {
+                binder,
+                expression,
+                body,
+            } => Term::Duplication {
+                binder,
+                expression: Box::new((*expression).into()),
+                body: Box::new((*body).into()),
+                annotation: (),
+            },
+            TermData::Reference(name) => Term::Reference(name, ()),
+            TermData::Universe => Term::Universe(()),
+            TermData::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+            } => Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new((*argument_type).into()),
+                return_type: Box::new((*return_type).into()),
+                annotation: (),
+            },
+            TermData::Wrap(term) => Term::Wrap(Box::new((*term).into()), ()),
+
+            TermData::Hole => Term::Hole(()),
+
+            TermData::Dynamic(term) => Term::Dynamic(term),
+        }
+    }
+}
+
+pub trait Allocator<T> {
+    type Box;
+
+    fn clone(data: &Self::Box) -> Self::Box
+    where
+        T: Clone;
+
+    fn debug(data: &Self::Box, f: &mut fmt::Formatter) -> fmt::Result
+    where
+        T: Debug;
+}
+
+pub trait AClone<T> {
+    fn clone(&self) -> Self;
+}
+
+#[derive(Debug, Clone)]
+pub struct System;
+
+impl<T> Allocator<T> for System {
+    type Box = Box<Term<T, System>>;
+
+    fn clone(data: &Self::Box) -> Self::Box
+    where
+        T: Clone,
+    {
+        data.clone()
+    }
+
+    fn debug(data: &Self::Box, f: &mut fmt::Formatter) -> fmt::Result
+    where
+        T: Debug,
+    {
+        <Self::Box as Debug>::fmt(data, f)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RefCount;
+
+impl<T> Allocator<T> for RefCount {
+    type Box = Rc<RefCell<Term<T, RefCount>>>;
+
+    fn clone(data: &Self::Box) -> Self::Box
+    where
+        T: Clone,
+    {
+        data.clone()
+    }
+
+    fn debug(data: &Self::Box, f: &mut fmt::Formatter) -> fmt::Result
+    where
+        T: Debug,
+    {
+        <Term<T, RefCount> as Debug>::fmt(&*data.borrow(), f)
+    }
+}
+
+struct DebugWrapper<'a, T: Debug, A: Allocator<T>>(&'a A::Box);
+
+impl<'a, T: Debug, A: Allocator<T>> Debug for DebugWrapper<'a, T, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        A::debug(self.0, f)
+    }
+}
+
+pub enum Term<T = (), A: Allocator<T> = System> {
+    Lambda {
+        erased: bool,
+        name: Option<String>,
+        body: A::Box,
         annotation: T,
     },
     Application {
         erased: bool,
-        function: Box<Term<T>>,
-        argument: Box<Term<T>>,
+        function: A::Box,
+        argument: A::Box,
         annotation: T,
     },
-    Put(Box<Term<T>>, T),
+    Put(A::Box, T),
     Duplication {
         binder: Option<String>,
-        expression: Box<Term<T>>,
-        body: Box<Term<T>>,
+        expression: A::Box,
+        body: A::Box,
         annotation: T,
     },
     Reference(String, T),
@@ -39,15 +252,151 @@ pub enum Term<T = ()> {
         erased: bool,
         name: Option<String>,
         self_name: Option<String>,
-        argument_type: Box<Term<T>>,
-        return_type: Box<Term<T>>,
+        argument_type: A::Box,
+        return_type: A::Box,
         annotation: T,
     },
-    Wrap(Box<Term<T>>, T),
+    Wrap(A::Box, T),
 
     Hole(T),
 
     Dynamic(Dynamic<T>),
+}
+
+impl<T: Clone, A: Allocator<T>> Clone for Term<T, A> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => Self::Lambda {
+                erased: erased.clone(),
+                name: name.clone(),
+                body: A::clone(body),
+                annotation: annotation.clone(),
+            },
+            Self::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => Self::Application {
+                erased: erased.clone(),
+                function: A::clone(function),
+                argument: A::clone(argument),
+                annotation: annotation.clone(),
+            },
+            Self::Put(arg0, arg1) => Self::Put(A::clone(arg0), arg1.clone()),
+            Self::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => Self::Duplication {
+                binder: binder.clone(),
+                expression: A::clone(expression),
+                body: A::clone(body),
+                annotation: annotation.clone(),
+            },
+            Self::Reference(arg0, arg1) => Self::Reference(arg0.clone(), arg1.clone()),
+            Self::Universe(arg0) => Self::Universe(arg0.clone()),
+            Self::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => Self::Function {
+                erased: erased.clone(),
+                name: name.clone(),
+                self_name: self_name.clone(),
+                argument_type: A::clone(argument_type),
+                return_type: A::clone(return_type),
+                annotation: annotation.clone(),
+            },
+            Self::Wrap(arg0, arg1) => Self::Wrap(A::clone(arg0), arg1.clone()),
+            Self::Hole(arg0) => Self::Hole(arg0.clone()),
+            Self::Dynamic(arg0) => Self::Dynamic(arg0.clone()),
+        }
+    }
+}
+
+impl<T: Debug, A: Allocator<T>> Debug for Term<T, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => f
+                .debug_struct("Lambda")
+                .field("erased", erased)
+                .field("name", name)
+                .field("body", &DebugWrapper::<T, A>(body))
+                .field("annotation", annotation)
+                .finish(),
+            Self::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => f
+                .debug_struct("Application")
+                .field("erased", erased)
+                .field("function", &DebugWrapper::<T, A>(function))
+                .field("argument", &DebugWrapper::<T, A>(argument))
+                .field("annotation", annotation)
+                .finish(),
+            Self::Put(arg0, arg1) => f
+                .debug_tuple("Put")
+                .field(&DebugWrapper::<T, A>(arg0))
+                .field(arg1)
+                .finish(),
+            Self::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => f
+                .debug_struct("Duplication")
+                .field("binder", binder)
+                .field("expression", &DebugWrapper::<T, A>(expression))
+                .field("body", &DebugWrapper::<T, A>(body))
+                .field("annotation", annotation)
+                .finish(),
+            Self::Reference(arg0, arg1) => {
+                f.debug_tuple("Reference").field(arg0).field(arg1).finish()
+            }
+            Self::Universe(arg0) => f.debug_tuple("Universe").field(arg0).finish(),
+            Self::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => f
+                .debug_struct("Function")
+                .field("erased", erased)
+                .field("name", name)
+                .field("self_name", self_name)
+                .field("argument_type", &DebugWrapper::<T, A>(argument_type))
+                .field("return_type", &DebugWrapper::<T, A>(return_type))
+                .field("annotation", annotation)
+                .finish(),
+            Self::Wrap(arg0, arg1) => f
+                .debug_tuple("Wrap")
+                .field(&DebugWrapper::<T, A>(arg0))
+                .field(arg1)
+                .finish(),
+            Self::Hole(arg0) => f.debug_tuple("Hole").field(arg0).finish(),
+            Self::Dynamic(arg0) => f.debug_tuple("Dynamic").field(arg0).finish(),
+        }
+    }
 }
 
 impl<T> Term<T> {
@@ -234,21 +583,14 @@ pub fn decode<T: MinCodecRead>(
     data
 }
 
-impl<T: MinCodecWrite + MinCodecRead + Unpin> Term<T>
-where
-    T::Serialize: Unpin,
-    T::Deserialize: Unpin,
-    Dynamic<T>: MinCodec,
-    <Dynamic<T> as MinCodecWrite>::Serialize: Unpin,
-    <Dynamic<T> as MinCodecRead>::Deserialize: Unpin,
-{
+impl TermData {
     pub async fn encode(
         self,
     ) -> Result<
         String,
         AsyncWriterError<
             std::io::Error,
-            <<Term<T> as MinCodecWrite>::Serialize as Serialize>::Error,
+            <<TermData as MinCodecWrite>::Serialize as Serialize>::Error,
         >,
     > {
         let mut buffer = vec![];
@@ -269,12 +611,9 @@ where
         Option<Self>,
         AsyncReaderError<
             std::io::Error,
-            <<Term<T> as MinCodecRead>::Deserialize as Deserialize>::Error,
+            <<TermData as MinCodecRead>::Deserialize as Deserialize>::Error,
         >,
-    >
-    where
-        T::Deserialize: Unpin,
-    {
+    > {
         let data = data.trim();
 
         if !data.starts_with("welkin:") {
@@ -419,6 +758,10 @@ impl<T> LambdaCursor<T> {
         &self.annotation
     }
 
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
+    }
+
     pub fn erased(&self) -> bool {
         self.erased
     }
@@ -476,6 +819,10 @@ pub struct ApplicationCursor<T> {
 impl<T> ApplicationCursor<T> {
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn erased(&self) -> bool {
@@ -553,6 +900,10 @@ impl<T> PutCursor<T> {
         &self.annotation
     }
 
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
+    }
+
     pub fn term(self) -> Cursor<T> {
         Cursor::from_term_and_path(
             self.term,
@@ -593,15 +944,15 @@ impl<T> ReferenceCursor<T> {
         &self.annotation
     }
 
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
+    }
+
     pub fn into_hole(self, annotation: T) -> HoleCursor<T> {
         HoleCursor {
             up: self.up,
             annotation,
         }
-    }
-
-    pub fn annotation_mut(&mut self) -> &mut T {
-        &mut self.annotation
     }
 
     pub fn with_name(self, name: String) -> Self {
@@ -634,6 +985,10 @@ pub struct DuplicationCursor<T> {
 impl<T> DuplicationCursor<T> {
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn binder(&self) -> Option<&str> {
@@ -711,6 +1066,10 @@ impl<T> UniverseCursor<T> {
         &self.annotation
     }
 
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
+    }
+
     pub fn ascend(self) -> Cursor<T> {
         Cursor::ascend_helper(self.path, Term::Universe(self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
@@ -738,6 +1097,10 @@ pub struct FunctionCursor<T> {
 impl<T> FunctionCursor<T> {
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn binder(&self) -> Option<&str> {
@@ -837,6 +1200,10 @@ pub struct WrapCursor<T> {
 impl<T> WrapCursor<T> {
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn term(self) -> Cursor<T> {
@@ -1172,6 +1539,24 @@ impl<T> Cursor<T> {
             Cursor::Hole(cursor) => cursor.annotation(),
 
             Cursor::Dynamic(cursor) => cursor.annotation(),
+        }
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        match self {
+            Cursor::Lambda(cursor) => cursor.annotation_mut(),
+            Cursor::Application(cursor) => cursor.annotation_mut(),
+            Cursor::Put(cursor) => cursor.annotation_mut(),
+            Cursor::Reference(cursor) => cursor.annotation_mut(),
+            Cursor::Duplication(cursor) => cursor.annotation_mut(),
+
+            Cursor::Universe(cursor) => cursor.annotation_mut(),
+            Cursor::Function(cursor) => cursor.annotation_mut(),
+            Cursor::Wrap(cursor) => cursor.annotation_mut(),
+
+            Cursor::Hole(cursor) => cursor.annotation_mut(),
+
+            Cursor::Dynamic(cursor) => cursor.annotation_mut(),
         }
     }
 

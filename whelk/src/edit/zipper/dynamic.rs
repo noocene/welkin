@@ -18,18 +18,12 @@ pub enum DynamicReadError {
     Invalid,
 }
 
-impl<T: MinCodecRead + MinCodecWrite + Unpin + 'static> MinCodecRead for Dynamic<T>
-where
-    T::Deserialize: Unpin,
-    T::Serialize: Unpin,
-    T: From<()>,
-    Def<T>: DynamicTerm<T>,
-{
+impl MinCodecRead for Dynamic<()> {
     type Deserialize = MapDeserialize<
         DynamicReadError,
         <Vec<u8> as MinCodecRead>::Deserialize,
-        Dynamic<T>,
-        fn(Vec<u8>) -> Result<Dynamic<T>, DynamicReadError>,
+        Dynamic<()>,
+        fn(Vec<u8>) -> Result<Dynamic<()>, DynamicReadError>,
     >;
 
     fn deserialize() -> Self::Deserialize {
@@ -48,7 +42,7 @@ where
                         };
                         Dynamic {
                             annotation: ().into(),
-                            term: Box::new(Def::new(body, expression, binder)),
+                            term: Box::new(Def::new(body.into(), expression.into(), binder)),
                         }
                     }
                     first => Err(DynamicReadError::Unknown(first as u8))?,
@@ -63,7 +57,7 @@ where
 #[derive(Debug)]
 pub enum DynamicWriteError {}
 
-impl<T> MinCodecWrite for Dynamic<T> {
+impl MinCodecWrite for Dynamic<()> {
     type Serialize = MapSerialize<Vec<u8>, DynamicWriteError>;
 
     fn serialize(self) -> Self::Serialize {
@@ -243,6 +237,10 @@ impl<T> DynamicCursor<T> {
 
     pub fn annotation(&self) -> &T {
         &self.annotation
+    }
+
+    pub fn annotation_mut(&mut self) -> &mut T {
+        &mut self.annotation
     }
 
     pub fn term(&self) -> &dyn DynamicTerm<T> {

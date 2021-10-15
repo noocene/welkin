@@ -13,7 +13,7 @@ use crate::{
     edit::{
         add_ui, apply_mutations, configure_contenteditable, focus_contenteditable, render_to,
         ui_section,
-        zipper::{encode, BranchWrapper, Cursor, DynamicCursor, HoleCursor, Path, Term},
+        zipper::{encode, BranchWrapper, Cursor, DynamicCursor, HoleCursor, Path, Term, TermData},
         DynamicVariance, UiSection, UiSectionVariance,
     },
     zipper::dynamic::DynamicTerm,
@@ -65,10 +65,9 @@ impl DynamicVariance for DefVariance {
 }
 
 #[derive(MinCodec)]
-#[bounds(Term<T>)]
-pub struct DefData<T> {
-    pub expression: Term<T>,
-    pub body: Term<T>,
+pub struct DefData {
+    pub expression: TermData,
+    pub body: TermData,
     pub binder: Option<String>,
 }
 
@@ -160,14 +159,12 @@ impl DynamicTerm<()> for Def<()> {
         container.append_child(&expression).unwrap();
         container.append_child(&body).unwrap();
 
-        let section = UiSection {
-            variant: UiSectionVariance::Dynamic(Box::new(DefVariance {
-                container,
-                span,
-                closures: Rc::new(vec![keydown_closure, focus_closure, closure]),
-                mutations,
-            })),
-        };
+        let section = UiSection::new(UiSectionVariance::Dynamic(Box::new(DefVariance {
+            container,
+            span,
+            closures: Rc::new(vec![keydown_closure, focus_closure, closure]),
+            mutations,
+        })));
 
         let sender = &sender.borrow().clone();
 
@@ -210,8 +207,8 @@ impl DynamicTerm<()> for Def<()> {
 
     fn encode(self: Box<Self>) -> Vec<u8> {
         if let Ok(data) = encode(DefData {
-            expression: self.expression,
-            body: self.body,
+            expression: self.expression.clear_annotation().into(),
+            body: self.body.clear_annotation().into(),
             binder: self.binder,
         }) {
             data
@@ -297,9 +294,7 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
                         body: body.clone(),
                         binder: self.binder.clone(),
                     }),
-                    annotation: UiSection {
-                        variant: UiSectionVariance::Dynamic(annotation.clone()),
-                    },
+                    annotation: UiSection::new(UiSectionVariance::Dynamic(annotation.clone())),
                 },
             ),
             focused,
@@ -315,9 +310,7 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
                         expression: c_expression,
                         binder: self.binder.clone(),
                     }),
-                    annotation: UiSection {
-                        variant: UiSectionVariance::Dynamic(annotation.clone()),
-                    },
+                    annotation: UiSection::new(UiSectionVariance::Dynamic(annotation.clone())),
                 },
             ),
             focused,
@@ -345,9 +338,7 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
                 body: body.into(),
                 binder: self.binder.clone(),
             }),
-            annotation: UiSection {
-                variant: UiSectionVariance::Dynamic(annotation),
-            },
+            annotation: UiSection::new(UiSectionVariance::Dynamic(annotation)),
         });
 
         for mutation in &mutations {
@@ -407,9 +398,9 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
                         body: self.body.clone(),
                         binder: self.binder.clone(),
                     }),
-                    annotation: UiSection {
-                        variant: UiSectionVariance::Dynamic(Box::new(annotation.clone())),
-                    },
+                    annotation: UiSection::new(UiSectionVariance::Dynamic(Box::new(
+                        annotation.clone(),
+                    ))),
                 },
             ),
             &expression_node,
@@ -423,9 +414,9 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
                         expression: self.expression.clone(),
                         binder: self.binder.clone(),
                     }),
-                    annotation: UiSection {
-                        variant: UiSectionVariance::Dynamic(Box::new(annotation.clone())),
-                    },
+                    annotation: UiSection::new(UiSectionVariance::Dynamic(Box::new(
+                        annotation.clone(),
+                    ))),
                 },
             ),
             &body_node,

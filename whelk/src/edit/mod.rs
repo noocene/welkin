@@ -8,7 +8,7 @@ use futures::{
 };
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, Node};
+use web_sys::{ClipboardEvent, Element, FocusEvent, HtmlElement, KeyboardEvent, Node};
 use zipper::{Cursor, Term};
 
 pub mod dynamic;
@@ -83,7 +83,7 @@ mod mutations {
 }
 pub use mutations::*;
 
-use crate::edit::dynamic::Def;
+use crate::edit::{dynamic::Def, zipper::TermData};
 
 use self::zipper::dynamic::Dynamic;
 
@@ -204,6 +204,12 @@ impl_downcast!(DynamicVariance);
 #[derive(Debug, Clone)]
 pub struct UiSection {
     variant: UiSectionVariance,
+}
+
+impl UiSection {
+    fn new(variant: UiSectionVariance) -> Self {
+        UiSection { variant }
+    }
 }
 
 impl UiSection {
@@ -527,12 +533,38 @@ fn configure_contenteditable(el: &Element) {
     el.set_attribute("autocapitalize", "off").unwrap();
 }
 
+struct OnChangeWrapper {
+    to_call: Vec<Box<dyn FnMut(&Cursor<UiSection>)>>,
+}
+
+impl OnChangeWrapper {
+    fn new() -> Self {
+        OnChangeWrapper { to_call: vec![] }
+    }
+
+    fn call(&mut self, data: &Cursor<UiSection>) {
+        for call in &mut self.to_call {
+            call(data);
+        }
+    }
+}
+
+impl std::fmt::Debug for OnChangeWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OnChangeWrapper").finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct Scratchpad {
     data: Rc<RefCell<Cursor<UiSection>>>,
     needs_update: Receiver<()>,
     sender: Sender<()>,
     clipboard_event_handler: Closure<dyn FnMut(JsValue)>,
+    focus_event_handler: Closure<dyn FnMut(JsValue)>,
+    has_focus: Rc<RefCell<bool>>,
+    target_node: Node,
+    on_change: OnChangeWrapper,
 }
 
 fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
@@ -622,15 +654,13 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 )
                 .unwrap();
 
-                UiSection {
-                    variant: UiSectionVariance::Lambda {
-                        p,
-                        span,
-                        mutations,
-                        container: container.into(),
-                        closures: Rc::new(vec![closure, focus_closure, keydown_closure]),
-                    },
-                }
+                UiSection::new(UiSectionVariance::Lambda {
+                    p,
+                    span,
+                    mutations,
+                    container: container.into(),
+                    closures: Rc::new(vec![closure, focus_closure, keydown_closure]),
+                })
             },
         },
         Term::Application {
@@ -712,13 +742,11 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     )
                     .unwrap();
 
-                UiSection {
-                    variant: UiSectionVariance::Application {
-                        container,
-                        closures: Rc::new(vec![focus_closure, keydown_closure]),
-                        mutations,
-                    },
-                }
+                UiSection::new(UiSectionVariance::Application {
+                    container,
+                    closures: Rc::new(vec![focus_closure, keydown_closure]),
+                    mutations,
+                })
             },
         },
         Term::Put(term, _) => Term::Put(Box::new(add_ui(*term, &sender)), {
@@ -776,14 +804,12 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 )
                 .unwrap();
 
-            UiSection {
-                variant: UiSectionVariance::Put {
-                    mutations,
-                    closures: Rc::new(vec![keydown_closure, focus_closure]),
-                    container,
-                    content,
-                },
-            }
+            UiSection::new(UiSectionVariance::Put {
+                mutations,
+                closures: Rc::new(vec![keydown_closure, focus_closure]),
+                container,
+                content,
+            })
         }),
         Term::Duplication {
             binder,
@@ -876,14 +902,12 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 container.append_child(&expression).unwrap();
                 container.append_child(&body).unwrap();
 
-                UiSection {
-                    variant: UiSectionVariance::Duplication {
-                        mutations,
-                        closures: Rc::new(vec![closure, keydown_closure, focus_closure]),
-                        container,
-                        span,
-                    },
-                }
+                UiSection::new(UiSectionVariance::Duplication {
+                    mutations,
+                    closures: Rc::new(vec![closure, keydown_closure, focus_closure]),
+                    container,
+                    span,
+                })
             },
         },
         Term::Reference(name, _) => Term::Reference(name, {
@@ -968,13 +992,11 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             p.add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
                 .unwrap();
 
-            UiSection {
-                variant: UiSectionVariance::Reference {
-                    p,
-                    mutations,
-                    closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),
-                },
-            }
+            UiSection::new(UiSectionVariance::Reference {
+                p,
+                mutations,
+                closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),
+            })
         }),
 
         Term::Universe(_) => Term::Universe({
@@ -1019,13 +1041,11 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             p.add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
                 .unwrap();
 
-            UiSection {
-                variant: UiSectionVariance::Universe {
-                    mutations,
-                    closures: Rc::new(vec![focus_closure, keydown_closure]),
-                    p,
-                },
-            }
+            UiSection::new(UiSectionVariance::Universe {
+                mutations,
+                closures: Rc::new(vec![focus_closure, keydown_closure]),
+                p,
+            })
         }),
         Term::Function {
             erased,
@@ -1208,23 +1228,21 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     )
                     .unwrap();
 
-                UiSection {
-                    variant: UiSectionVariance::Function {
-                        container,
-                        self_span,
-                        self_focused: Rc::new(RefCell::new(false)),
-                        span,
-                        mutations,
-                        closures: Rc::new(vec![
-                            input_closure,
-                            self_input_closure,
-                            focus_closure,
-                            self_focus_closure,
-                            keydown_closure,
-                            self_keydown_closure,
-                        ]),
-                    },
-                }
+                UiSection::new(UiSectionVariance::Function {
+                    container,
+                    self_span,
+                    self_focused: Rc::new(RefCell::new(false)),
+                    span,
+                    mutations,
+                    closures: Rc::new(vec![
+                        input_closure,
+                        self_input_closure,
+                        focus_closure,
+                        self_focus_closure,
+                        keydown_closure,
+                        self_keydown_closure,
+                    ]),
+                })
             },
         },
         Term::Wrap(term, _) => Term::Wrap(Box::new(add_ui(*term, &sender)), {
@@ -1282,14 +1300,12 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 )
                 .unwrap();
 
-            UiSection {
-                variant: UiSectionVariance::Wrap {
-                    mutations,
-                    closures: Rc::new(vec![keydown_closure, focus_closure]),
-                    container,
-                    content,
-                },
-            }
+            UiSection::new(UiSectionVariance::Wrap {
+                mutations,
+                closures: Rc::new(vec![keydown_closure, focus_closure]),
+                container,
+                content,
+            })
         }),
 
         Term::Hole(_) => Term::Hole(ui_section(Term::Hole(()), sender)),
@@ -1475,13 +1491,11 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
             p.add_event_listener_with_callback("keydown", keydown_closure.as_ref().unchecked_ref())
                 .unwrap();
 
-            UiSection {
-                variant: UiSectionVariance::Hole {
-                    mutations,
-                    p,
-                    closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),
-                },
-            }
+            UiSection::new(UiSectionVariance::Hole {
+                mutations,
+                p,
+                closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),
+            })
         }
         _ => todo!(),
     }
@@ -1564,10 +1578,8 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
         Cursor::Dynamic(cursor) => {
             cursor.term.render_to(
                 &cursor.up,
-                match &cursor.annotation {
-                    UiSection {
-                        variant: UiSectionVariance::Dynamic(variance),
-                    } => variance.as_ref(),
+                match &cursor.annotation.variant {
+                    UiSectionVariance::Dynamic(variance) => variance.as_ref(),
                     _ => panic!(),
                 },
                 node,
@@ -2031,10 +2043,8 @@ fn apply_mutations(
 
             term.apply_mutations(
                 cursor.up,
-                match cursor.annotation {
-                    UiSection {
-                        variant: UiSectionVariance::Dynamic(variance),
-                    } => variance,
+                match cursor.annotation.variant {
+                    UiSectionVariance::Dynamic(variance) => variance,
                     _ => panic!(),
                 },
                 focused,
@@ -2045,14 +2055,52 @@ fn apply_mutations(
 }
 
 impl Scratchpad {
-    pub fn new(term: Term) -> Self {
+    pub fn new(term: Term, target_node: Node) -> Self {
         let (mut sender, receiver) = channel(0);
         let data = Rc::new(RefCell::new(add_ui(term, &sender).into()));
+
+        let has_focus = Rc::new(RefCell::new(false));
+
+        let focus_event_handler = Closure::wrap(Box::new({
+            let has_focus = has_focus.clone();
+            move |e: JsValue| {
+                let e: FocusEvent = e.dyn_into().unwrap();
+
+                match e.type_().as_str() {
+                    "focusin" => {
+                        *has_focus.borrow_mut() = true;
+                    }
+                    "focusout" => {
+                        if e.related_target().is_some() {
+                            *has_focus.borrow_mut() = false;
+                        }
+                    }
+                    _ => panic!(),
+                }
+            }
+        }) as Box<dyn FnMut(JsValue)>);
+
+        target_node
+            .add_event_listener_with_callback(
+                "focusin",
+                focus_event_handler.as_ref().unchecked_ref(),
+            )
+            .unwrap();
+        target_node
+            .add_event_listener_with_callback(
+                "focusout",
+                focus_event_handler.as_ref().unchecked_ref(),
+            )
+            .unwrap();
 
         let scratchpad = Scratchpad {
             data: data.clone(),
             needs_update: receiver,
+            target_node,
+            has_focus,
             sender: sender.clone(),
+            on_change: OnChangeWrapper::new(),
+            focus_event_handler,
             clipboard_event_handler: Closure::wrap(Box::new(move |e: JsValue| {
                 let copy = |f: Box<dyn Fn(String)>| {
                     let data = &mut *data.borrow_mut();
@@ -2062,7 +2110,7 @@ impl Scratchpad {
                     let waker = noop_waker();
                     let mut context = Context::from_waker(&waker);
 
-                    let mut fut = Box::pin(term.encode());
+                    let mut fut = Box::pin(TermData::from(term.clear_annotation()).encode());
 
                     let data = loop {
                         match fut.as_mut().poll(&mut context) {
@@ -2130,7 +2178,7 @@ impl Scratchpad {
                                 let waker = noop_waker();
                                 let mut context = Context::from_waker(&waker);
 
-                                let mut fut = Box::pin(Term::<()>::decode(data));
+                                let mut fut = Box::pin(TermData::decode(data));
 
                                 let data = loop {
                                     match fut.as_mut().poll(&mut context) {
@@ -2143,9 +2191,9 @@ impl Scratchpad {
                                     match &mut cursor.annotation_mut().variant {
                                         UiSectionVariance::Hole { p, mutations, .. } => {
                                             p.remove();
-                                            mutations
-                                                .borrow_mut()
-                                                .push(HoleMutation::Replace(add_ui(data, &sender)));
+                                            mutations.borrow_mut().push(HoleMutation::Replace(
+                                                add_ui(data.into(), &sender),
+                                            ));
                                         }
                                         _ => panic!(),
                                     }
@@ -2164,15 +2212,35 @@ impl Scratchpad {
         scratchpad
     }
 
+    pub fn force_update(&mut self, data: Term) {
+        *self.data.borrow_mut() = add_ui(data, &self.sender).into();
+        for i in 0..self.target_node.child_nodes().length() {
+            if let Some(el) = self
+                .target_node
+                .child_nodes()
+                .get(i)
+                .unwrap()
+                .dyn_ref::<Element>()
+            {
+                el.remove()
+            }
+        }
+        let _ = self.sender.try_send(());
+    }
+
+    pub fn cursor(&self) -> Cursor<UiSection> {
+        self.data.borrow().clone()
+    }
+
     pub async fn needs_update(&mut self) {
         self.needs_update.next().await.unwrap()
     }
 
-    fn add_copy_listener(&self) {
+    fn root_el(&self) -> Element {
         let annotation = self.data.borrow();
         let annotation = annotation.annotation();
 
-        let el = match &annotation.variant {
+        match &annotation.variant {
             UiSectionVariance::Lambda { span, .. } => span,
             UiSectionVariance::Application { container, .. } => container,
             UiSectionVariance::Reference { p, .. } => p,
@@ -2194,7 +2262,12 @@ impl Scratchpad {
                 }
             }
             UiSectionVariance::Dynamic(variance) => variance.focused_el(),
-        };
+        }
+        .clone()
+    }
+
+    fn add_copy_listener(&self) {
+        let el = self.root_el();
         el.add_event_listener_with_callback(
             "cut",
             self.clipboard_event_handler.as_ref().unchecked_ref(),
@@ -2217,38 +2290,14 @@ impl Scratchpad {
         .unwrap();
     }
 
-    pub fn apply_mutations(self) -> Result<Self, JsValue> {
+    pub fn apply_mutations(mut self) -> Result<Self, JsValue> {
         let perf = web_sys::window().unwrap().performance().unwrap();
         let time = perf.now();
 
         let mut focused = None;
         let mut data = self.data.borrow().clone();
 
-        let annotation = data.annotation();
-
-        let el = match &annotation.variant {
-            UiSectionVariance::Lambda { span, .. } => span,
-            UiSectionVariance::Application { container, .. } => container,
-            UiSectionVariance::Reference { p, .. } => p,
-            UiSectionVariance::Hole { p, .. } => p,
-            UiSectionVariance::Universe { p, .. } => p,
-            UiSectionVariance::Wrap { container, .. } => container,
-            UiSectionVariance::Put { container, .. } => container,
-            UiSectionVariance::Duplication { span, .. } => span,
-            UiSectionVariance::Function {
-                span,
-                self_span,
-                self_focused,
-                ..
-            } => {
-                if *self_focused.borrow() {
-                    self_span
-                } else {
-                    span
-                }
-            }
-            UiSectionVariance::Dynamic(variance) => variance.focused_el(),
-        };
+        let el = self.root_el();
         el.remove_event_listener_with_callback(
             "cut",
             self.clipboard_event_handler.as_ref().unchecked_ref(),
@@ -2284,17 +2333,18 @@ impl Scratchpad {
 
         *self.data.borrow_mut() = data;
 
+        self.on_change.call(&*self.data.borrow());
+
         console_log!("update took {:.1}ms", perf.now() - time);
 
-        Ok(Scratchpad {
-            data: self.data,
-            needs_update: self.needs_update,
-            sender: self.sender.clone(),
-            clipboard_event_handler: self.clipboard_event_handler,
-        })
+        Ok(self)
     }
 
-    pub fn render_to(&self, node: &Node) -> Result<(), JsValue> {
+    pub fn on_change(&mut self, closure: Box<dyn FnMut(&Cursor<UiSection>)>) {
+        self.on_change.to_call.push(closure);
+    }
+
+    pub fn render(&self) -> Result<(), JsValue> {
         let perf = web_sys::window().unwrap().performance().unwrap();
         let time = perf.now();
 
@@ -2304,12 +2354,15 @@ impl Scratchpad {
             data = data.ascend();
         }
 
-        render_to(&data, node)?;
+        render_to(&data, &self.target_node)?;
 
         spawn_local({
             let data = self.data.clone();
+            let has_focus = *self.has_focus.borrow();
             async move {
-                data.borrow().annotation().focus();
+                if has_focus {
+                    data.borrow().annotation().focus();
+                }
             }
         });
 
