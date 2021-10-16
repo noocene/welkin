@@ -188,7 +188,7 @@ pub fn entry(term: Vec<u8>) -> Result<(), JsValue> {
 
         push_paragraph(Block::Scratchpad {
             data: zipper::Term::Hole(()),
-            on_update: Box::new(move |_| {}),
+            on_update: Box::new(move |update| {}),
             force_update: Box::pin(stream::pending()),
         });
 

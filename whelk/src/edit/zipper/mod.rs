@@ -9,6 +9,7 @@ use std::{
     fmt::{self, Debug},
     rc::Rc,
 };
+mod analysis;
 pub mod dynamic;
 use welkin_core::term::{self, Index};
 
@@ -155,6 +156,140 @@ impl From<TermData> for Term<()> {
             TermData::Hole => Term::Hole(()),
 
             TermData::Dynamic(term) => Term::Dynamic(term),
+        }
+    }
+}
+
+impl<T: Clone> From<Term<T, RefCount>> for Term<T, System> {
+    fn from(term: Term<T, RefCount>) -> Self {
+        match term {
+            Term::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => Term::Lambda {
+                erased,
+                name,
+                body: Box::new(body.borrow().clone().into()),
+                annotation,
+            },
+            Term::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => Term::Application {
+                erased,
+                function: Box::new(function.borrow().clone().into()),
+                argument: Box::new(argument.borrow().clone().into()),
+                annotation,
+            },
+            Term::Put(term, annotation) => {
+                Term::Put(Box::new(term.borrow().clone().into()), annotation)
+            }
+            Term::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => Term::Duplication {
+                binder,
+                expression: Box::new(expression.borrow().clone().into()),
+                body: Box::new(body.borrow().clone().into()),
+                annotation,
+            },
+            Term::Reference(name, annotation) => Term::Reference(name, annotation),
+            Term::Universe(annotation) => Term::Universe(annotation),
+            Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new(argument_type.borrow().clone().into()),
+                return_type: Box::new(return_type.borrow().clone().into()),
+                annotation,
+            },
+            Term::Wrap(term, annotation) => {
+                Term::Wrap(Box::new(term.borrow().clone().into()), annotation)
+            }
+            Term::Hole(annotation) => Term::Hole(annotation),
+
+            Term::Dynamic(dynamic) => Term::Dynamic(dynamic),
+        }
+    }
+}
+
+impl<T> From<Term<T>> for Term<T, RefCount> {
+    fn from(term: Term<T>) -> Self {
+        match term {
+            Term::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => Term::Lambda {
+                erased,
+                name,
+                body: Rc::new(RefCell::new((*body).into())),
+                annotation,
+            },
+            Term::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => Term::Application {
+                erased,
+                function: Rc::new(RefCell::new((*function).into())),
+                argument: Rc::new(RefCell::new((*argument).into())),
+                annotation,
+            },
+            Term::Put(term, annotation) => {
+                Term::Put(Rc::new(RefCell::new((*term).into())), annotation)
+            }
+            Term::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => Term::Duplication {
+                binder,
+                expression: Rc::new(RefCell::new((*expression).into())),
+                body: Rc::new(RefCell::new((*body).into())),
+                annotation,
+            },
+            Term::Reference(name, annotation) => Term::Reference(name, annotation),
+
+            Term::Universe(annotation) => Term::Universe(annotation),
+            Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Rc::new(RefCell::new((*argument_type).into())),
+                return_type: Rc::new(RefCell::new((*return_type).into())),
+                annotation,
+            },
+            Term::Wrap(term, annotation) => {
+                Term::Wrap(Rc::new(RefCell::new((*term).into())), annotation)
+            }
+
+            Term::Hole(annotation) => Term::Hole(annotation),
+
+            Term::Dynamic(dynamic) => Term::Dynamic(dynamic),
         }
     }
 }

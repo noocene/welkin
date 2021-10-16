@@ -85,7 +85,7 @@ pub use mutations::*;
 
 use crate::edit::{dynamic::Def, zipper::TermData};
 
-use self::zipper::dynamic::Dynamic;
+use self::zipper::{dynamic::Dynamic, RefCount};
 
 #[allow(dead_code)]
 fn focus_contenteditable(p: &Element, always: bool) {
@@ -204,11 +204,15 @@ impl_downcast!(DynamicVariance);
 #[derive(Debug, Clone)]
 pub struct UiSection {
     variant: UiSectionVariance,
+    annotation: Rc<RefCell<Term<(), RefCount>>>,
 }
 
 impl UiSection {
     fn new(variant: UiSectionVariance) -> Self {
-        UiSection { variant }
+        UiSection {
+            variant,
+            annotation: Rc::new(RefCell::new(Term::Hole(()))),
+        }
     }
 }
 
@@ -1630,12 +1634,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     LambdaMutation::Remove => {
+                        let annotation = c.annotation().annotation.clone();
                         c = Cursor::Hole(match c {
                             Cursor::Lambda(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        c.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1683,12 +1689,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     ApplicationMutation::Remove => {
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::Hole(match cursor {
                             Cursor::Application(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        cursor.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1723,12 +1731,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     PutMutation::Remove => {
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::Hole(match cursor {
                             Cursor::Put(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        cursor.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1766,12 +1776,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     ReferenceMutation::Remove => {
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::Hole(match cursor {
                             Cursor::Reference(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        cursor.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1825,12 +1837,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     DuplicationMutation::Remove => {
+                        let annotation = c.annotation().annotation.clone();
                         c = Cursor::Hole(match c {
                             Cursor::Duplication(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        c.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1861,12 +1875,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     UniverseMutation::Remove => {
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::Hole(match cursor {
                             Cursor::Universe(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        cursor.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1934,12 +1950,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     FunctionMutation::Remove => {
+                        let annotation = c.annotation().annotation.clone();
                         c = Cursor::Hole(match c {
                             Cursor::Function(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        c.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -1979,12 +1997,14 @@ fn apply_mutations(
             for mutation in &mutations {
                 match mutation {
                     WrapMutation::Remove => {
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::Hole(match cursor {
                             Cursor::Wrap(cursor) => {
                                 cursor.into_hole(ui_section(Term::Hole(()), sender))
                             }
                             _ => todo!(),
                         });
+                        cursor.annotation_mut().annotation = annotation;
                         break;
                     }
                     _ => {}
@@ -2017,7 +2037,9 @@ fn apply_mutations(
                 match mutation {
                     HoleMutation::Replace(term) => {
                         let term = term.clone();
+                        let annotation = cursor.annotation().annotation.clone();
                         cursor = Cursor::from_term_and_path(term, cursor.path().clone());
+                        cursor.annotation_mut().annotation = annotation;
                     }
                     HoleMutation::ToParent => {
                         cursor = cursor.ascend();
@@ -2210,6 +2232,10 @@ impl Scratchpad {
         scratchpad.add_copy_listener();
 
         scratchpad
+    }
+
+    pub fn annotate(&self, data: Term) {
+        self.data.borrow_mut().annotate(data);
     }
 
     pub fn force_update(&mut self, data: Term) {
