@@ -694,9 +694,9 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 let spacer = document.create_element("span").unwrap();
                 spacer.class_list().add_1("application-spacer").unwrap();
 
-                container.append_child(&spacer).unwrap();
                 container.append_child(&function).unwrap();
                 container.append_child(&argument).unwrap();
+                container.append_child(&spacer).unwrap();
 
                 let focus_closure = Closure::wrap(Box::new({
                     let mutations = mutations.clone();
@@ -1521,8 +1521,8 @@ fn render_to(data: &Cursor<UiSection>, node: &Node) -> Result<(), JsValue> {
                 .render(node, &Cursor::Application(cursor.clone()))?
                 .unwrap();
 
-            let function_node = node.child_nodes().get(1).unwrap();
-            let argument_node = node.child_nodes().get(2).unwrap();
+            let function_node = node.child_nodes().get(0).unwrap();
+            let argument_node = node.child_nodes().get(1).unwrap();
             render_to(&cursor.clone().function(), &function_node)?;
             render_to(&cursor.clone().argument(), &argument_node)?;
         }

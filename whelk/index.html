@@ -218,65 +218,52 @@
         
         .application-function::after {
             content: '\00a0';
+            pointer-events: none;
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)::before,
-        .application:not(.erased)>.application-argument>.application:not(.erased)::after,
-        .application.erased>.application-argument>.application.erased:not(:focus)::before,
-        .application.erased>.application-argument>.application.erased::after {
+        .application:not(.erased)>.application-function>.application:not(.erased)::before,
+        .application:not(.erased)>.application-function>.application:not(.erased):not(:focus)::after,
+        .application.erased>.application-function>.application.erased::before,
+        .application.erased>.application-function>.application.erased:not(:focus)::after {
             content: '';
             outline: none;
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased):focus::after,
-        .application.erased>.application-argument>.application.erased:focus::after {
+        .application:not(.erased)>.application-function>.application:not(.erased):focus::before,
+        .application.erased>.application-function>.application.erased:focus::before {
             content: '\00a0';
             position: absolute;
+            pointer-events: none;
+            margin-left: -1ch;
             outline: 1px solid rgba(255, 255, 255, 0.9);
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased)>.application-argument::before,
-        .application.erased>.application-argument>.application.erased>.application-argument::before {
-            content: '';
-        }
-        
-        *:not(.application-argument)>.application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer::before,
-        *:not(.application-argument)>.application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer::before {
-            margin-left: -2ch;
-        }
-        
-        *:not(.application-argument)>.application:not(.erased)>.application-argument>.application:not(.erased):not(:focus),
-        *:not(.application-argument)>.application.erased>.application-argument>.application.erased:not(:focus) {
-            margin-left: 1ch;
-        }
-        
-        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer::before,
-        .application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer::before {
-            content: '\00a0';
+        .application:not(.erased)>.application-function>.application:not(.erased):not(:focus)>.application-spacer::before,
+        .application.erased>.application-function>.application.erased:not(:focus)>.application-spacer::before {
             display: inline-block;
-            margin-left: -1ch;
+            content: '\00a0';
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased):focus::before,
-        .application.erased>.application-argument>.application.erased:focus::before {
-            margin-left: -1ch;
-        }
-        
-        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus):hover>.application-spacer::before {
-            content: '(';
+        .application:not(.erased)>.application-function>.application:not(.erased):not(:focus):hover>.application-spacer::before {
+            content: ')';
             color: #8C9440;
             opacity: 0.5;
         }
         
-        .application.erased>.application-argument>.application.erased:not(:focus):hover>.application-spacer::before {
-            content: '[';
+        .application.erased>.application-function>.application.erased:not(:focus):hover>.application-spacer::before {
+            content: ']';
             color: #8C9440;
             opacity: 0.5;
         }
         
-        .application:not(.erased)>.application-argument>.application:not(.erased):not(:focus)>.application-spacer:hover::before,
-        .application.erased>.application-argument>.application.erased:not(:focus)>.application-spacer:hover::before {
+        .application:not(.erased)>.application-function>.application:not(.erased):not(:focus)>.application-spacer:hover::before,
+        .application.erased>.application-function>.application.erased:not(:focus)>.application-spacer:hover::before {
             opacity: 1;
+        }
+        
+        .application:not(.erased)>.application-function>.application:not(.erased),
+        .application.erased>.application-function>.application.erased {
+            margin-right: -1ch;
         }
         
         .lambda {
