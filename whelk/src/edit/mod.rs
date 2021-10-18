@@ -559,6 +559,28 @@ impl std::fmt::Debug for OnChangeWrapper {
     }
 }
 
+struct OnRemoveWrapper {
+    to_call: Vec<Box<dyn FnMut()>>,
+}
+
+impl OnRemoveWrapper {
+    fn new() -> Self {
+        OnRemoveWrapper { to_call: vec![] }
+    }
+
+    fn call(&mut self) {
+        for call in &mut self.to_call {
+            call();
+        }
+    }
+}
+
+impl std::fmt::Debug for OnRemoveWrapper {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OnRemoveWrapper").finish()
+    }
+}
+
 #[derive(Debug)]
 pub struct Scratchpad {
     data: Rc<RefCell<Cursor<UiSection>>>,
@@ -637,16 +659,17 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     let sender = RefCell::new(sender.clone());
                     move |e: JsValue| {
                         let e: KeyboardEvent = e.dyn_into().unwrap();
-                        e.stop_propagation();
                         if (e.code() == "Backspace" || e.code() == "Delete")
                             && span.text_content().unwrap_or("".into()).len() == 0
                         {
                             mutations.borrow_mut().push(LambdaMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         } else if e.code() == "Backslash" {
                             e.prevent_default();
                             mutations.borrow_mut().push(LambdaMutation::ToggleErased);
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -723,16 +746,17 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     move |e: JsValue| {
                         let e: KeyboardEvent = e.dyn_into().unwrap();
                         if document.active_element().unwrap() == container {
-                            e.stop_propagation();
                             if e.code() == "Backspace" || e.code() == "Delete" {
                                 mutations.borrow_mut().push(ApplicationMutation::Remove);
                                 container.remove();
+                                e.stop_propagation();
                                 let _ = sender.borrow_mut().try_send(());
                             } else if e.code() == "Backslash" {
                                 e.prevent_default();
                                 mutations
                                     .borrow_mut()
                                     .push(ApplicationMutation::ToggleErased);
+                                e.stop_propagation();
                                 let _ = sender.borrow_mut().try_send(());
                             }
                         }
@@ -791,10 +815,10 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
                     if document.active_element().unwrap() == container {
-                        e.stop_propagation();
                         if e.code() == "Backspace" || e.code() == "Delete" {
                             mutations.borrow_mut().push(PutMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -876,12 +900,12 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     let sender = RefCell::new(sender.clone());
                     move |e: JsValue| {
                         let e: KeyboardEvent = e.dyn_into().unwrap();
-                        e.stop_propagation();
                         if (e.code() == "Backspace" || e.code() == "Delete")
                             && span.text_content().unwrap_or("".into()).len() == 0
                         {
                             mutations.borrow_mut().push(DuplicationMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -981,12 +1005,13 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
                     if document.active_element().unwrap() == p {
-                        e.stop_propagation();
                         if (e.code() == "Backspace" || e.code() == "Delete")
                             && p.text_content().unwrap_or("".into()).is_empty()
                         {
+                            e.stop_propagation();
                             p.dyn_ref::<HtmlElement>().unwrap().blur().unwrap();
                         } else if e.code() == "Escape" {
+                            e.stop_propagation();
                             p.dyn_ref::<HtmlElement>().unwrap().blur().unwrap();
                         }
                     }
@@ -1032,10 +1057,10 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
                     if document.active_element().unwrap() == p {
-                        e.stop_propagation();
                         if e.code() == "Backspace" || e.code() == "Delete" {
                             mutations.borrow_mut().push(UniverseMutation::Remove);
                             p.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -1181,16 +1206,17 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     let sender = RefCell::new(sender.clone());
                     move |e: JsValue| {
                         let e: KeyboardEvent = e.dyn_into().unwrap();
-                        e.stop_propagation();
                         if (e.code() == "Backspace" || e.code() == "Delete")
                             && span.text_content().unwrap_or("".into()).len() == 0
                         {
                             mutations.borrow_mut().push(FunctionMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         } else if e.code() == "Backslash" {
                             e.prevent_default();
                             mutations.borrow_mut().push(FunctionMutation::ToggleErased);
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -1209,16 +1235,17 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                     let sender = RefCell::new(sender.clone());
                     move |e: JsValue| {
                         let e: KeyboardEvent = e.dyn_into().unwrap();
-                        e.stop_propagation();
                         if (e.code() == "Backspace" || e.code() == "Delete")
                             && self_span.text_content().unwrap_or("".into()).len() == 0
                         {
                             mutations.borrow_mut().push(FunctionMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         } else if e.code() == "Backslash" {
                             e.prevent_default();
                             mutations.borrow_mut().push(FunctionMutation::ToggleErased);
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -1287,10 +1314,10 @@ fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
                     if document.active_element().unwrap() == container {
-                        e.stop_propagation();
                         if e.code() == "Backspace" || e.code() == "Delete" {
                             mutations.borrow_mut().push(WrapMutation::Remove);
                             container.remove();
+                            e.stop_propagation();
                             let _ = sender.borrow_mut().try_send(());
                         }
                     }
@@ -1481,13 +1508,20 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 let sender = RefCell::new(sender.clone());
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
-                    e.stop_propagation();
                     if (e.code() == "Backspace" || e.code() == "Delete")
                         && p.text_content().unwrap_or("".into()).is_empty()
                     {
-                        mutations.borrow_mut().push(HoleMutation::ToParent);
-                        p.remove();
-                        let _ = sender.borrow_mut().try_send(());
+                        if !p
+                            .parent_element()
+                            .unwrap()
+                            .class_list()
+                            .contains("scratchpad")
+                        {
+                            mutations.borrow_mut().push(HoleMutation::ToParent);
+                            p.remove();
+                            e.stop_propagation();
+                            let _ = sender.borrow_mut().try_send(());
+                        }
                     }
                 }
             }) as Box<dyn FnMut(JsValue)>);
@@ -2258,6 +2292,10 @@ impl Scratchpad {
         self.data.borrow().clone()
     }
 
+    pub fn data(&self) -> Rc<RefCell<Cursor<UiSection>>> {
+        self.data.clone()
+    }
+
     pub async fn needs_update(&mut self) {
         self.needs_update.next().await.unwrap()
     }
@@ -2395,5 +2433,12 @@ impl Scratchpad {
         console_log!("render took {:.1}ms", perf.now() - time);
 
         Ok(())
+    }
+
+    pub fn focus(&self) {
+        let data = self.data.clone();
+        spawn_local(async move {
+            data.borrow().annotation().focus();
+        });
     }
 }

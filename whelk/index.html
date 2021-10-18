@@ -12,11 +12,6 @@
         <div class="contents">
             <div id="container"></div>
         </div>
-        <div id="promptbox">
-            <div class="prompt">
-                <p><input id="input" type="text" /></p>
-            </div>
-        </div>
     </div>
 
     <style>
@@ -79,6 +74,10 @@
         
         .contents {
             margin: 16px;
+            margin-top: 64px;
+            display: flex;
+            justify-content: center;
+            flex-flow: row nowrap;
         }
         
         .contents,
@@ -139,15 +138,6 @@
             content: ' '
         }
         
-        .wrapper {
-            margin: 0;
-            padding: 8px;
-            padding-left: 0;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-left: none;
-            margin-top: 16px;
-        }
-        
         .scratchpad p {
             padding-top: 0;
         }
@@ -155,6 +145,11 @@
         p.lambda::before {
             content: 'λ ';
             color: #8C9440;
+        }
+        
+        #container {
+            max-width: 900px;
+            flex-grow: 1;
         }
         
         .lambdawrapper.erased>p.lambda::before {
@@ -289,6 +284,32 @@
         
         * {
             outline: none;
+        }
+        
+        .scratchpad.wrapper {
+            margin-bottom: 16px;
+            display: flex;
+            flex-flow: row nowrap;
+            justify-content: space-between;
+        }
+        
+        .scratchpad.content {
+            max-width: 80%;
+        }
+        
+        .scratchpad.status::before {
+            content: 'incomplete';
+            opacity: 0.7;
+        }
+        
+        .scratchpad.status.def-ok::before {
+            content: 'def ok';
+            color: #B5BD68;
+        }
+        
+        .scratchpad.status.def-err::before {
+            content: 'def err';
+            color: #CC6666;
         }
         
         [contenteditable]:hover,
@@ -434,10 +455,6 @@
             content: '□';
         }
     </style>
-
-    <script>
-        document.getElementById('input').focus();
-    </script>
 </body>
 
 </html>

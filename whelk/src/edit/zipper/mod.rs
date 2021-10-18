@@ -1,8 +1,8 @@
 use core_futures_io::FuturesCompat;
 use futures::{task::noop_waker, Future};
 use mincodec::{
-    AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, Deserialize, MinCodec,
-    MinCodecRead, MinCodecWrite, Serialize,
+    AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, MinCodec, MinCodecRead,
+    MinCodecWrite,
 };
 use std::{
     cell::RefCell,
@@ -11,11 +11,12 @@ use std::{
 };
 mod analysis;
 pub mod dynamic;
+use serde::{Deserialize, Serialize};
 use welkin_core::term::{self, Index};
 
 use self::dynamic::{Dynamic, DynamicTerm};
 
-#[derive(Debug, Clone, MinCodec)]
+#[derive(Debug, Clone, MinCodec, Serialize, Deserialize)]
 #[bounds()]
 pub enum TermData {
     Lambda {
@@ -48,6 +49,7 @@ pub enum TermData {
 
     Hole,
 
+    #[serde(skip)]
     Dynamic(Dynamic<()>),
 }
 
@@ -671,7 +673,7 @@ impl<T> Term<T> {
 
 pub fn encode<T: MinCodecWrite>(
     data: T,
-) -> Result<Vec<u8>, AsyncWriterError<std::io::Error, <T::Serialize as Serialize>::Error>>
+) -> Result<Vec<u8>, AsyncWriterError<std::io::Error, <T::Serialize as mincodec::Serialize>::Error>>
 where
     T::Serialize: Unpin,
 {
@@ -700,7 +702,7 @@ where
 
 pub fn decode<T: MinCodecRead>(
     buffer: &[u8],
-) -> Result<T, AsyncReaderError<std::io::Error, <T::Deserialize as Deserialize>::Error>> {
+) -> Result<T, AsyncReaderError<std::io::Error, <T::Deserialize as mincodec::Deserialize>::Error>> {
     let fut = async { AsyncReader::<_, T>::new(FuturesCompat::new(buffer)).await };
 
     let waker = noop_waker();
@@ -725,7 +727,7 @@ impl TermData {
         String,
         AsyncWriterError<
             std::io::Error,
-            <<TermData as MinCodecWrite>::Serialize as Serialize>::Error,
+            <<TermData as MinCodecWrite>::Serialize as mincodec::Serialize>::Error,
         >,
     > {
         let mut buffer = vec![];
@@ -746,7 +748,7 @@ impl TermData {
         Option<Self>,
         AsyncReaderError<
             std::io::Error,
-            <<TermData as MinCodecRead>::Deserialize as Deserialize>::Error,
+            <<TermData as MinCodecRead>::Deserialize as mincodec::Deserialize>::Error,
         >,
     > {
         let data = data.trim();
@@ -1866,19 +1868,20 @@ impl<T> From<Cursor<T>> for Term<T> {
     }
 }
 
-impl From<Cursor> for term::Term<String> {
-    fn from(cursor: Cursor) -> Self {
-        match cursor {
+impl<T: Clone> Cursor<T> {
+    pub fn into_term(self) -> Option<term::Term<String>> {
+        let cursor = self;
+        Some(match cursor {
             Cursor::Lambda(cursor) => term::Term::Lambda {
                 erased: cursor.erased(),
-                body: Box::new(cursor.body().into()),
+                body: Box::new(cursor.body().into_term()?),
             },
             Cursor::Application(cursor) => term::Term::Apply {
                 erased: cursor.erased(),
-                function: Box::new(cursor.clone().function().into()),
-                argument: Box::new(cursor.argument().into()),
+                function: Box::new(cursor.clone().function().into_term()?),
+                argument: Box::new(cursor.argument().into_term()?),
             },
-            Cursor::Put(cursor) => term::Term::Put(Box::new(cursor.term().into())),
+            Cursor::Put(cursor) => term::Term::Put(Box::new(cursor.term().into_term()?)),
             Cursor::Reference(ref c) => {
                 if let Some(idx) = cursor.context().position(|name| {
                     if let Some(name) = name {
@@ -1894,21 +1897,21 @@ impl From<Cursor> for term::Term<String> {
                 }
             }
             Cursor::Duplication(cursor) => term::Term::Duplicate {
-                expression: Box::new(cursor.clone().expression().into()),
-                body: Box::new(cursor.body().into()),
+                expression: Box::new(cursor.clone().expression().into_term()?),
+                body: Box::new(cursor.body().into_term()?),
             },
 
             Cursor::Universe(_) => term::Term::Universe,
             Cursor::Function(cursor) => term::Term::Function {
                 erased: cursor.erased(),
-                argument_type: Box::new(cursor.clone().argument_type().into()),
-                return_type: Box::new(cursor.return_type().into()),
+                argument_type: Box::new(cursor.clone().argument_type().into_term()?),
+                return_type: Box::new(cursor.return_type().into_term()?),
             },
-            Cursor::Wrap(cursor) => term::Term::Wrap(Box::new(cursor.term().into())),
+            Cursor::Wrap(cursor) => term::Term::Wrap(Box::new(cursor.term().into_term()?)),
 
-            Cursor::Hole(_) => panic!(),
+            Cursor::Hole(_) => None?,
 
-            Cursor::Dynamic(cursor) => Cursor::from(cursor.expand()).into(),
-        }
+            Cursor::Dynamic(cursor) => Cursor::from(cursor.expand()).into_term()?,
+        })
     }
 }
