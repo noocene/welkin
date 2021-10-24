@@ -49,7 +49,6 @@ pub enum TermData {
 
     Hole,
 
-    #[serde(skip)]
     Dynamic(Dynamic<()>),
 }
 

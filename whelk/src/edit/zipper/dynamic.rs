@@ -1,6 +1,8 @@
 use futures::channel::mpsc::Sender;
 use mincodec::{MapDeserialize, MapSerialize, MinCodecRead, MinCodecWrite};
+use serde::{de, Deserialize, Serialize};
 use std::fmt::Debug;
+use thiserror::Error;
 use wasm_bindgen::JsValue;
 use web_sys::Node;
 
@@ -11,11 +13,68 @@ use crate::edit::{
 
 use super::{decode, Cursor, DynamicCursor, Path, Term};
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DynamicReadError {
+    #[error("buffer too short")]
     TooShort,
+    #[error("unknown dynamic variant {0}")]
     Unknown(u8),
+    #[error("invalid dynamic data")]
     Invalid,
+}
+
+impl Dynamic<()> {
+    pub fn to_buffer(self) -> Vec<u8> {
+        let mut buffer = vec![self.term.index()];
+        buffer.extend(self.term.encode());
+        buffer
+    }
+
+    pub fn from_buffer(data: Vec<u8>) -> Result<Dynamic<()>, DynamicReadError> {
+        if let Some(first) = data.first() {
+            Ok(match *first as char {
+                'D' => {
+                    let DefData {
+                        binder,
+                        expression,
+                        body,
+                    } = if let Ok(data) = decode(&data[1..]) {
+                        data
+                    } else {
+                        return Err(DynamicReadError::Invalid);
+                    };
+                    Dynamic {
+                        annotation: ().into(),
+                        term: Box::new(Def::new(body.into(), expression.into(), binder)),
+                    }
+                }
+                first => Err(DynamicReadError::Unknown(first as u8))?,
+            })
+        } else {
+            Err(DynamicReadError::TooShort)
+        }
+    }
+}
+
+impl Serialize for Dynamic<()> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_bytes(&self.clone().to_buffer())
+    }
+}
+
+impl<'de> Deserialize<'de> for Dynamic<()> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(
+            Dynamic::from_buffer(Deserialize::deserialize(deserializer)?)
+                .map_err(|e| <D::Error as de::Error>::custom(e))?,
+        )
+    }
 }
 
 impl MinCodecRead for Dynamic<()> {
@@ -27,30 +86,7 @@ impl MinCodecRead for Dynamic<()> {
     >;
 
     fn deserialize() -> Self::Deserialize {
-        MapDeserialize::new(|buffer| {
-            if let Some(first) = buffer.first() {
-                Ok(match *first as char {
-                    'D' => {
-                        let DefData {
-                            binder,
-                            expression,
-                            body,
-                        } = if let Ok(data) = decode(&buffer[1..]) {
-                            data
-                        } else {
-                            return Err(DynamicReadError::Invalid);
-                        };
-                        Dynamic {
-                            annotation: ().into(),
-                            term: Box::new(Def::new(body.into(), expression.into(), binder)),
-                        }
-                    }
-                    first => Err(DynamicReadError::Unknown(first as u8))?,
-                })
-            } else {
-                Err(DynamicReadError::TooShort)
-            }
-        })
+        MapDeserialize::new(|buffer| Dynamic::from_buffer(buffer))
     }
 }
 
@@ -61,13 +97,7 @@ impl MinCodecWrite for Dynamic<()> {
     type Serialize = MapSerialize<Vec<u8>, DynamicWriteError>;
 
     fn serialize(self) -> Self::Serialize {
-        MapSerialize::new(self, |dynamic| {
-            Ok({
-                let mut buffer = vec![dynamic.term.index()];
-                buffer.extend(dynamic.term.encode());
-                buffer
-            })
-        })
+        MapSerialize::new(self, |dynamic| Ok(dynamic.to_buffer()))
     }
 }
 
@@ -138,6 +168,8 @@ pub trait DynamicTerm<T> {
 
     fn index(&self) -> u8;
     fn encode(self: Box<Self>) -> Vec<u8>;
+
+    fn expand(self: Box<Self>) -> Term<()>;
 
     fn box_clone(&self) -> Box<dyn DynamicTerm<T>>
     where
@@ -221,6 +253,10 @@ impl<T, U: DynamicTerm<T> + ?Sized> DynamicTerm<T> for Box<U> {
     fn encode(self: Box<Self>) -> Vec<u8> {
         U::encode(*self)
     }
+
+    fn expand(self: Box<Self>) -> Term<()> {
+        U::expand(*self)
+    }
 }
 
 impl<T> DynamicCursor<T> {
@@ -251,7 +287,7 @@ impl<T> DynamicCursor<T> {
         &mut self.term
     }
 
-    pub fn expand(self) -> Term<T> {
-        todo!()
+    pub fn expand(self) -> Term<()> {
+        self.term.expand()
     }
 }

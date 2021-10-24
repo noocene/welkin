@@ -135,13 +135,13 @@ impl DynamicTerm<()> for Def<()> {
             let sender = sender.clone();
             move |e: JsValue| {
                 let e: KeyboardEvent = e.dyn_into().unwrap();
-                e.stop_propagation();
                 if (e.code() == "Backspace" || e.code() == "Delete")
                     && span.text_content().unwrap_or("".into()).len() == 0
                 {
                     mutations.borrow_mut().push(DefMutation::Remove);
                     container.remove();
                     let _ = sender.borrow_mut().try_send(());
+                    e.stop_propagation();
                 }
             }
         }) as Box<dyn FnMut(JsValue)>);
@@ -214,6 +214,15 @@ impl DynamicTerm<()> for Def<()> {
             data
         } else {
             panic!()
+        }
+    }
+
+    fn expand(self: Box<Self>) -> Term<()> {
+        Term::Duplication {
+            binder: self.binder,
+            expression: Box::new(self.expression.clear_annotation()),
+            body: Box::new(self.body.clear_annotation()),
+            annotation: (),
         }
     }
 }
@@ -439,6 +448,15 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
 
     fn encode(self: Box<Self>) -> Vec<u8> {
         todo!()
+    }
+
+    fn expand(self: Box<Self>) -> Term<()> {
+        Term::Duplication {
+            binder: self.binder,
+            expression: Box::new(self.expression.clear_annotation()),
+            body: Box::new(self.body.clear_annotation()),
+            annotation: (),
+        }
     }
 }
 
