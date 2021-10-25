@@ -6,13 +6,13 @@ use std::{
 
 use futures::channel::mpsc::Sender;
 use mincodec::MinCodec;
+use ui_section::add_ui;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::{Element, KeyboardEvent};
 
 use crate::{
     edit::{
-        add_ui, apply_mutations, configure_contenteditable, focus_contenteditable, render_to,
-        ui_section,
+        apply_mutations, configure_contenteditable, focus_contenteditable, render_to, ui_section,
         zipper::{encode, BranchWrapper, Cursor, DynamicCursor, HoleCursor, Path, Term, TermData},
         DynamicVariance, UiSection, UiSectionVariance,
     },
