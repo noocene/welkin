@@ -1508,21 +1508,31 @@ fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 let sender = RefCell::new(sender.clone());
                 move |e: JsValue| {
                     let e: KeyboardEvent = e.dyn_into().unwrap();
-                    if (e.code() == "Backspace" || e.code() == "Delete")
-                        && p.text_content().unwrap_or("".into()).is_empty()
-                    {
-                        if !p
-                            .parent_element()
-                            .unwrap()
-                            .class_list()
-                            .contains("scratchpad")
-                        {
-                            mutations.borrow_mut().push(HoleMutation::ToParent);
-                            p.remove();
-                            e.stop_propagation();
-                            let _ = sender.borrow_mut().try_send(());
-                        }
+
+                    let is_delete = e.code() == "Backspace" || e.code() == "Delete";
+
+                    if !is_delete {
+                        return;
                     }
+
+                    let is_empty = p.text_content().unwrap_or("".into()).is_empty();
+                    let is_top = p
+                        .parent_element()
+                        .unwrap()
+                        .class_list()
+                        .contains("scratchpad");
+
+                    if is_empty {
+                        if is_top {
+                            return;
+                        }
+
+                        mutations.borrow_mut().push(HoleMutation::ToParent);
+                        p.remove();
+                        let _ = sender.borrow_mut().try_send(());
+                    }
+
+                    e.stop_propagation();
                 }
             }) as Box<dyn FnMut(JsValue)>);
 
