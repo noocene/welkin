@@ -34,6 +34,12 @@ impl UiSection {
     }
 }
 
+fn update_text_content(element: &Element, content: &str) {
+    if content != element.text_content().unwrap_or_else(|| "".into()) {
+        element.set_text_content(Some(content));
+    }
+}
+
 impl UiSection {
     pub fn trigger_remove(&self, sender: &Sender<()>) {
         match &self.variant {
@@ -155,11 +161,7 @@ impl UiSection {
                 container, span, ..
             } => match cursor {
                 Cursor::Lambda(cursor) => {
-                    if let Some(name) = cursor.name() {
-                        span.set_text_content(Some(&name));
-                    } else {
-                        span.set_text_content(Some(""));
-                    }
+                    update_text_content(span, cursor.name().unwrap_or(""));
 
                     if cursor.erased() {
                         container
@@ -211,7 +213,7 @@ impl UiSection {
                 Cursor::Reference(c) => {
                     let name = c.name();
 
-                    p.set_text_content(Some(name));
+                    update_text_content(p, name);
 
                     if let Some(_) = cursor.context().position(|a| {
                         if let Some(a) = a {
@@ -286,11 +288,7 @@ impl UiSection {
                         into.append_child(&container)?;
                     }
 
-                    if let Some(binder) = cursor.binder() {
-                        span.set_text_content(Some(binder));
-                    } else {
-                        span.set_text_content(Some(""));
-                    }
+                    update_text_content(span, cursor.binder().unwrap_or(""));
 
                     Some(container.clone().into())
                 }
@@ -303,17 +301,9 @@ impl UiSection {
                 ..
             } => match cursor {
                 Cursor::Function(cursor) => {
-                    if let Some(name) = cursor.binder() {
-                        span.set_text_content(Some(&name));
-                    } else {
-                        span.set_text_content(Some(""));
-                    }
+                    update_text_content(span, cursor.binder().unwrap_or(""));
 
-                    if let Some(name) = cursor.self_binder() {
-                        self_span.set_text_content(Some(&name));
-                    } else {
-                        self_span.set_text_content(Some(""));
-                    }
+                    update_text_content(self_span, cursor.self_binder().unwrap_or(""));
 
                     if cursor.erased() {
                         container
