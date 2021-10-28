@@ -265,11 +265,13 @@
             display: inline-block;
         }
         
-        .reference.var {
+        .reference.var,
+        .color-binding {
             color: #F0C674;
         }
         
-        .reference.ref {
+        .reference.ref,
+        .color-reference {
             color: #B294BB;
         }
         
@@ -452,6 +454,18 @@
         }
         
         .function-self-name:empty::before {
+            content: '□';
+        }
+        
+        .abst {
+            display: inline-block;
+        }
+        
+        .abst-field {
+            display: inline-block;
+        }
+        
+        .abst-field.string:empty::before {
             content: '□';
         }
     </style>

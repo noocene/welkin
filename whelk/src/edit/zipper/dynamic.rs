@@ -7,7 +7,10 @@ use wasm_bindgen::JsValue;
 use web_sys::Node;
 
 use crate::edit::{
-    dynamic::{Def, DefData},
+    dynamic::{
+        abst::{controls::ControlData, implementation::Root},
+        Def, DefData,
+    },
     DynamicVariance, UiSection,
 };
 
@@ -46,6 +49,17 @@ impl Dynamic<()> {
                     Dynamic {
                         annotation: ().into(),
                         term: Box::new(Def::new(body.into(), expression.into(), binder)),
+                    }
+                }
+                'i' => {
+                    let data: ControlData = if let Ok(data) = decode(&data[1..]) {
+                        data
+                    } else {
+                        return Err(DynamicReadError::Invalid);
+                    };
+                    Dynamic {
+                        annotation: ().into(),
+                        term: Box::new(Root::new(data.to_control())),
                     }
                 }
                 first => Err(DynamicReadError::Unknown(first as u8))?,

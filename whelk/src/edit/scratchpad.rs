@@ -224,29 +224,27 @@ impl Scratchpad {
         let annotation = annotation.annotation();
 
         match &annotation.variant {
-            UiSectionVariance::Lambda { span, .. } => span,
-            UiSectionVariance::Application { container, .. } => container,
-            UiSectionVariance::Reference { p, .. } => p,
-            UiSectionVariance::Hole { p, .. } => p,
-            UiSectionVariance::Universe { p, .. } => p,
-            UiSectionVariance::Wrap { container, .. } => container,
-            UiSectionVariance::Put { container, .. } => container,
-            UiSectionVariance::Duplication { span, .. } => span,
+            UiSectionVariance::Lambda { span, .. } => span.clone(),
+            UiSectionVariance::Application { container, .. } => container.clone(),
+            UiSectionVariance::Reference { p, .. } => p.clone(),
+            UiSectionVariance::Hole { p, .. } => p.clone(),
+            UiSectionVariance::Universe { p, .. } => p.clone(),
+            UiSectionVariance::Wrap { container, .. } => container.clone(),
+            UiSectionVariance::Put { container, .. } => container.clone(),
+            UiSectionVariance::Duplication { span, .. } => span.clone(),
             UiSectionVariance::Function {
                 self_span,
                 span,
                 self_focused,
                 ..
-            } => {
-                if *self_focused.borrow() {
-                    self_span
-                } else {
-                    span
-                }
+            } => if *self_focused.borrow() {
+                self_span
+            } else {
+                span
             }
-            UiSectionVariance::Dynamic(variance) => variance.focused_el(),
+            .clone(),
+            UiSectionVariance::Dynamic(variance) => variance.focused_el().into_owned(),
         }
-        .clone()
     }
 
     fn add_copy_listener(&self) {

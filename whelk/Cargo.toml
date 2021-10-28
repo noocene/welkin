@@ -49,3 +49,5 @@ base91 = "0.1.0"
 mincodec = { git = "https://github.com/noocene/mincodec" }
 core-futures-io = { git = "https://github.com/noocene/core-futures-io", features = ["futures"] }
 downcast-rs = "1.2.0"
+uuid = { version = "0.8.2", features = ["v4", "wasm-bindgen"] }
+js-sys = "0.3.55"

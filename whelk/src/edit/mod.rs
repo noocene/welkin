@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 use downcast_rs::{impl_downcast, Downcast};
 
@@ -74,7 +74,7 @@ pub trait DynamicVariance: Downcast {
     fn debug(&self, f: &mut fmt::Formatter) -> fmt::Result;
     fn focus(&self);
     fn remove(&self);
-    fn focused_el(&self) -> &Element;
+    fn focused_el(&self) -> Cow<'_, Element>;
 }
 
 impl_downcast!(DynamicVariance);

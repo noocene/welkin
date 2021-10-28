@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cell::RefCell,
     fmt::{self, Debug},
     rc::Rc,
@@ -59,8 +60,8 @@ impl DynamicVariance for DefVariance {
         self.container.remove();
     }
 
-    fn focused_el(&self) -> &Element {
-        &self.span
+    fn focused_el(&self) -> Cow<'_, Element> {
+        Cow::Borrowed(&self.span)
     }
 }
 

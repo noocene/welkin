@@ -30,5 +30,10 @@ module.exports = {
         static: {
             directory: path.join(__dirname, 'welkin')
         }
-    }
+    },
+    ignoreWarnings: [
+        (warning) =>
+        warning.message ===
+        "Critical dependency: the request of a dependency is an expression",
+    ],
 };
