@@ -148,7 +148,10 @@ async fn add_scratchpad(
         let pads = pads.clone();
         move |e| {
             if e.dyn_ref::<KeyboardEvent>().is_none() {
-                save(pads.clone());
+                let pads = pads.clone();
+                spawn_local(async move {
+                    save(pads);
+                });
                 return;
             }
             let e: KeyboardEvent = e.dyn_into().unwrap();
