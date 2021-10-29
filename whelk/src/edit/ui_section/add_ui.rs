@@ -8,7 +8,7 @@ use web_sys::{HtmlElement, KeyboardEvent};
 use crate::edit::{
     configure_contenteditable,
     dynamic::{
-        abst::{controls::Invoke, implementation::Root},
+        abst::{controls::Adt, implementation::Root},
         Def,
     },
     focus_contenteditable, focus_element,
@@ -889,8 +889,8 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                 )),
                                 &sender.borrow().clone(),
                             ))),
-                            'i' => Some(HoleMutation::Replace(add_ui(
-                                Term::Dynamic(Dynamic::new((), Root::new(Invoke::new()))),
+                            't' => Some(HoleMutation::Replace(add_ui(
+                                Term::Dynamic(Dynamic::new((), Root::new(Adt::new()))),
                                 &sender.borrow().clone(),
                             ))),
                             _ => None,

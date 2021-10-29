@@ -4,6 +4,7 @@ use futures::channel::mpsc::Sender;
 use js_sys::Array;
 use uuid::Uuid;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
+use wasm_bindgen_futures::spawn_local;
 use web_sys::{Element, KeyboardEvent, Node};
 
 use crate::edit::{
@@ -13,8 +14,9 @@ use crate::edit::{
 };
 
 use super::{
-    AbstractDynamic, Color, DynamicContext, Field, FieldContext, FieldRead, FieldSetColor,
-    FieldTriggersRemove, HasField, HasInitializedField,
+    AbstractDynamic, Color, Container, DynamicContext, Field, FieldContext, FieldFocus, FieldRead,
+    FieldSetColor, FieldTriggersAppend, FieldTriggersRemove, HasContainer, HasField,
+    HasInitializedField, HasStatic, Static, VStack, Wrapper,
 };
 
 pub enum HasFocus {
@@ -34,11 +36,32 @@ pub struct RootContext {
     needs_focus: Rc<RefCell<bool>>,
     needs_remove: Rc<RefCell<bool>>,
     sender: Option<Sender<()>>,
+    is_root: bool,
+}
+
+impl RootContext {
+    fn new_child(&self, container: Element) -> Self {
+        Self {
+            fields: HashMap::new(),
+            container,
+            focused: self.focused.clone(),
+            needs_focus: self.needs_focus.clone(),
+            needs_remove: self.needs_remove.clone(),
+            sender: self.sender.clone(),
+            is_root: false,
+        }
+    }
 }
 
 pub enum RootFieldData {
     String {
         context: RootFieldContext<RootStringField>,
+    },
+    Static {
+        context: RootFieldContext<RootStaticField>,
+    },
+    Container {
+        context: RootFieldContext<RootContainerField>,
     },
 }
 
@@ -46,6 +69,8 @@ impl RootFieldData {
     fn container_element(&self) -> &Element {
         match self {
             RootFieldData::String { context } => &context.data.element,
+            RootFieldData::Static { context } => &context.data.element,
+            RootFieldData::Container { context } => &context.data.element,
         }
     }
 }
@@ -54,7 +79,7 @@ impl RootFieldData {
 pub struct RootHandle(Uuid);
 
 pub struct RootStringField(RootHandle);
-pub struct RootTermField(RootHandle);
+pub struct RootStaticField(RootHandle);
 
 #[derive(Clone)]
 pub struct RootVariance {
@@ -76,11 +101,35 @@ pub struct RootFieldContext<T: FieldContextData> {
 pub struct RootStringFieldContextData {
     element: Element,
     triggers_remove: Rc<RefCell<bool>>,
+    triggers_append: Rc<RefCell<bool>>,
     update: Rc<RefCell<Option<String>>>,
+}
+
+pub struct RootContainerFieldContextData {
+    element: Element,
+    context: RootContext,
+}
+
+pub struct RootStaticFieldContextData {
+    element: Element,
+}
+
+pub struct RootContainerField(RootHandle);
+
+impl Container for RootContainerField {
+    type Context = RootContext;
+}
+
+impl FieldContextData for RootContainerField {
+    type Data = RootContainerFieldContextData;
 }
 
 impl FieldContextData for RootStringField {
     type Data = RootStringFieldContextData;
+}
+
+impl FieldContextData for RootStaticField {
+    type Data = RootStaticFieldContextData;
 }
 
 fn color_to_class(color: Color) -> &'static str {
@@ -127,7 +176,47 @@ impl FieldContext<RootStringField> for RootFieldContext<RootStringField> {
     }
 
     fn trigger_remove(&self) -> bool {
-        *self.data.triggers_remove.borrow()
+        self.data.triggers_remove.replace(false)
+    }
+
+    fn trigger_append(&self) -> bool {
+        self.data.triggers_append.replace(false)
+    }
+
+    fn focus(&mut self) {
+        let element = self.data.element.clone();
+
+        spawn_local(async move {
+            focus_contenteditable(&element, true);
+        });
+    }
+}
+
+impl FieldContext<RootStaticField> for RootFieldContext<RootStaticField> {
+    fn set_color(&mut self, color: Color)
+    where
+        RootStaticField: FieldSetColor,
+    {
+        let colors = COLORS
+            .iter()
+            .cloned()
+            .map(|a| JsValue::from(color_to_class(a)))
+            .collect::<Array>();
+        self.data.element.class_list().remove(&colors).unwrap();
+        self.data
+            .element
+            .class_list()
+            .add_1(color_to_class(color))
+            .unwrap();
+    }
+}
+
+impl FieldContext<RootContainerField> for RootFieldContext<RootContainerField> {
+    fn context(&mut self) -> &mut <RootContainerField as Container>::Context
+    where
+        RootContainerField: Container,
+    {
+        &mut self.data.context
     }
 }
 
@@ -178,15 +267,7 @@ impl Field for RootStringField {
     }
 }
 
-impl FieldRead for RootStringField {
-    type Data = String;
-}
-
-impl FieldSetColor for RootStringField {}
-
-impl FieldTriggersRemove for RootStringField {}
-
-impl Field for RootTermField {
+impl Field for RootStaticField {
     type Handle = RootHandle;
 
     fn handle(&self) -> Self::Handle {
@@ -194,7 +275,163 @@ impl Field for RootTermField {
     }
 }
 
+impl Field for RootContainerField {
+    type Handle = RootHandle;
+
+    fn handle(&self) -> Self::Handle {
+        self.0.clone()
+    }
+}
+
+impl FieldRead for RootStringField {
+    type Data = String;
+}
+
+impl FieldSetColor for RootStringField {}
+
+impl FieldSetColor for RootStaticField {}
+
+impl FieldTriggersRemove for RootStringField {}
+
+impl FieldTriggersAppend for RootStringField {}
+
+impl FieldFocus for RootStringField {}
+
 impl HasInitializedField<String> for RootContext {}
+
+impl HasStatic for RootContext {}
+
+impl HasField<VStack> for RootContext {
+    type Field = RootContainerField;
+
+    type Initializer = ();
+
+    fn create_field(&mut self, initializer: Self::Initializer) -> Self::Field {
+        let sender = self.sender.clone().unwrap();
+
+        let handle = Uuid::new_v4();
+
+        let document = web_sys::window().unwrap().document().unwrap();
+        let span = document.create_element("div").unwrap();
+
+        span.class_list().add_2("abst-field", "vstack").unwrap();
+
+        self.fields.insert(
+            handle.clone(),
+            RootFieldData::Container {
+                context: RootFieldContext {
+                    closures: vec![],
+                    data: RootContainerFieldContextData {
+                        element: span.clone(),
+                        context: self.new_child(span),
+                    },
+                },
+            },
+        );
+
+        RootContainerField(RootHandle(handle))
+    }
+
+    fn field(&mut self, field: &Self::Field) -> &mut dyn FieldContext<Self::Field> {
+        let handle = &(field.0).0;
+
+        let field = self.fields.get_mut(handle).unwrap();
+
+        match field {
+            RootFieldData::Container { context } => context,
+            _ => panic!(),
+        }
+    }
+}
+
+impl HasContainer<VStack> for RootContext {}
+
+impl HasField<Wrapper> for RootContext {
+    type Field = RootContainerField;
+
+    type Initializer = ();
+
+    fn create_field(&mut self, initializer: Self::Initializer) -> Self::Field {
+        let sender = self.sender.clone().unwrap();
+
+        let handle = Uuid::new_v4();
+
+        let document = web_sys::window().unwrap().document().unwrap();
+        let span = document.create_element("div").unwrap();
+
+        span.class_list().add_2("abst-field", "wrapper").unwrap();
+
+        self.fields.insert(
+            handle.clone(),
+            RootFieldData::Container {
+                context: RootFieldContext {
+                    closures: vec![],
+                    data: RootContainerFieldContextData {
+                        element: span.clone(),
+                        context: self.new_child(span),
+                    },
+                },
+            },
+        );
+
+        RootContainerField(RootHandle(handle))
+    }
+
+    fn field(&mut self, field: &Self::Field) -> &mut dyn FieldContext<Self::Field> {
+        let handle = &(field.0).0;
+
+        let field = self.fields.get_mut(handle).unwrap();
+
+        match field {
+            RootFieldData::Container { context } => context,
+            _ => panic!(),
+        }
+    }
+}
+
+impl HasContainer<Wrapper> for RootContext {}
+
+impl HasField<Static> for RootContext {
+    type Field = RootStaticField;
+
+    type Initializer = Static;
+
+    fn create_field(&mut self, initializer: Self::Initializer) -> Self::Field {
+        let sender = self.sender.clone().unwrap();
+
+        let handle = Uuid::new_v4();
+
+        let document = web_sys::window().unwrap().document().unwrap();
+        let span = document.create_element("span").unwrap();
+
+        span.set_text_content(Some(initializer.0.as_str()));
+
+        span.class_list().add_2("abst-field", "static").unwrap();
+
+        self.fields.insert(
+            handle.clone(),
+            RootFieldData::Static {
+                context: RootFieldContext {
+                    closures: vec![],
+                    data: RootStaticFieldContextData { element: span },
+                },
+            },
+        );
+
+        RootStaticField(RootHandle(handle))
+    }
+
+    fn field(&mut self, field: &Self::Field) -> &mut dyn FieldContext<Self::Field> {
+        let handle = &(field.0).0;
+
+        let field = self.fields.get_mut(handle).unwrap();
+
+        match field {
+            RootFieldData::Static { context } => context,
+            _ => panic!(),
+        }
+    }
+}
 
 impl HasField<String> for RootContext {
     type Field = RootStringField;
@@ -206,6 +443,8 @@ impl HasField<String> for RootContext {
         let handle = Uuid::new_v4();
 
         let triggers_remove = Rc::new(RefCell::new(false));
+        let triggers_append = Rc::new(RefCell::new(false));
+
         let needs_focus = self.needs_focus.clone();
 
         let update = Rc::new(RefCell::new(None));
@@ -228,6 +467,7 @@ impl HasField<String> for RootContext {
             let span = span.clone();
             let mut sender = sender.clone();
             let triggers_remove = triggers_remove.clone();
+            let triggers_append = triggers_append.clone();
             move |e: JsValue| {
                 let e: KeyboardEvent = e.dyn_into().unwrap();
 
@@ -236,6 +476,12 @@ impl HasField<String> for RootContext {
                 {
                     *triggers_remove.borrow_mut() = true;
                     let _ = sender.try_send(());
+                    e.prevent_default();
+                    e.stop_propagation();
+                } else if e.code() == "Enter" {
+                    *triggers_append.borrow_mut() = true;
+                    let _ = sender.try_send(());
+                    e.prevent_default();
                     e.stop_propagation();
                 }
             }
@@ -284,6 +530,7 @@ impl HasField<String> for RootContext {
                         element: span,
                         update,
                         triggers_remove,
+                        triggers_append,
                     },
                 },
             },
@@ -324,12 +571,28 @@ impl DynamicContext for RootContext {
     }
 
     fn append_field_after(&mut self, field: Self::Handle, after: Self::Handle) {
-        todo!()
+        let uuid = field.0;
+
+        let field = self.fields.get(&uuid).unwrap();
+
+        let uuid = after.0;
+
+        let after = self.fields.get(&uuid).unwrap();
+
+        let element = field.container_element();
+
+        let after = after.container_element();
+
+        if !self.container.contains(Some(element)) {
+            after.after_with_node_1(element).unwrap();
+        }
     }
 
     fn remove(&mut self) {
         self.container.remove();
-        *self.needs_remove.borrow_mut() = true;
+        if self.is_root {
+            *self.needs_remove.borrow_mut() = true;
+        }
     }
 }
 
@@ -516,6 +779,7 @@ impl Root {
             context: Rc::new(RefCell::new(RootContext {
                 focused: Rc::new(RefCell::new(HasFocus::None)),
                 fields: HashMap::new(),
+                is_root: true,
                 sender: None,
                 needs_focus: Rc::new(RefCell::new(false)),
                 container,

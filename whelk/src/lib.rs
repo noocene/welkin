@@ -157,7 +157,7 @@ async fn add_scratchpad(
             let e: KeyboardEvent = e.dyn_into().unwrap();
             let code = e.code();
             match code.as_str() {
-                "Enter" => {
+                "Enter" if e.shift_key() => {
                     e.prevent_default();
                     let wrapper = wrapper.clone();
                     let pads = pads.clone();

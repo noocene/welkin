@@ -351,6 +351,10 @@
             color: #8ABEB7;
         }
         
+        .color-type {
+            color: #8ABEB7;
+        }
+        
         .reference:empty::after {
             content: '\00a0';
         }
@@ -467,6 +471,19 @@
         
         .abst-field.string:empty::before {
             content: '□';
+        }
+        
+        .abst-field.static {
+            pointer-events: none;
+            white-space: pre;
+        }
+        
+        .abst-field.static::after {
+            content: '\00a0';
+        }
+        
+        .abst-field.vstack>.abst-field.wrapper {
+            display: block;
         }
     </style>
 </body>

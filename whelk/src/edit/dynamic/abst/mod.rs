@@ -15,7 +15,11 @@ pub trait FieldRead: Field {
     type Data;
 }
 
+pub trait FieldFocus: Field {}
+
 pub trait FieldTriggersRemove: Field {}
+
+pub trait FieldTriggersAppend: Field {}
 
 #[derive(Clone)]
 pub enum Color {
@@ -31,15 +35,45 @@ pub trait FieldSetColor: Field {}
 pub trait FieldContext<T: Field> {
     fn read(&self) -> Option<T::Data>
     where
-        T: FieldRead;
+        T: FieldRead,
+    {
+        todo!()
+    }
 
     fn set_color(&mut self, color: Color)
     where
-        T: FieldSetColor;
+        T: FieldSetColor,
+    {
+        todo!()
+    }
 
     fn trigger_remove(&self) -> bool
     where
-        T: FieldTriggersRemove;
+        T: FieldTriggersRemove,
+    {
+        todo!()
+    }
+
+    fn trigger_append(&self) -> bool
+    where
+        T: FieldTriggersAppend,
+    {
+        todo!()
+    }
+
+    fn context(&mut self) -> &mut T::Context
+    where
+        T: Container,
+    {
+        todo!()
+    }
+
+    fn focus(&mut self)
+    where
+        T: FieldFocus,
+    {
+        todo!()
+    }
 }
 
 pub trait DynamicContext {
@@ -51,6 +85,24 @@ pub trait DynamicContext {
 
     fn remove(&mut self);
 }
+
+pub struct Static(pub String);
+
+pub trait HasStatic: HasField<Static, Initializer = Static> {}
+
+pub trait Container: Field {
+    type Context: DynamicContext;
+}
+
+pub trait HasContainer<T>: HasField<T, Initializer = ()>
+where
+    <Self as HasField<T>>::Field: Container,
+{
+}
+
+pub struct VStack;
+
+pub struct Wrapper;
 
 pub trait HasField<T>: DynamicContext {
     type Field: Field<Handle = Self::Handle>;
