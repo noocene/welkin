@@ -12,18 +12,17 @@ impl Definitions<String> for NullDefinitions {
     }
 }
 
-pub struct Substitution;
+pub struct Substitution<T: Definitions<String>>(pub T);
 
 #[derive(Debug, Error)]
 #[error("substitution error")]
 pub struct SubstitutionError(NormalizationError);
 
-impl Evaluator for Substitution {
+impl<T: Definitions<String>> Evaluator for Substitution<T> {
     type Error = SubstitutionError;
 
     fn evaluate(&self, mut term: Term<String>) -> Result<Term<String>, Self::Error> {
-        term.normalize(&NullDefinitions)
-            .map_err(SubstitutionError)?;
+        term.normalize(&self.0).map_err(SubstitutionError)?;
         Ok(term)
     }
 }

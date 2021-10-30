@@ -10,7 +10,7 @@ use std::{
 use combine::{stream::position, EasyParser};
 use welkin::{
     compiler::{item::Compile as _, term::Compile as _, BumpPath, LocalResolver, Resolve},
-    Bumpalo, SerializableData,
+    Bumpalo, SerializableData, Terms,
 };
 
 use parser::{
@@ -22,7 +22,7 @@ use walkdir::WalkDir;
 use welkin_core::{
     net::{Net, VisitNetExt},
     term::{
-        alloc::{Allocator, IntoInner, Reallocate},
+        alloc::{Allocator, IntoInner, Reallocate, System},
         Index, MapCache, Primitives, Term, TypedDefinitions,
     },
 };
@@ -166,6 +166,54 @@ fn read_sized<T, V: Primitives<T>, A: Allocator<T, V>, U>(
         }
     } else {
         panic!()
+    }
+}
+
+fn bump_to_system<'a, T: 'a, U: Primitives<T> + 'a>(
+    term: Term<T, U, Bumpalo<'a>>,
+) -> Term<T, U, System> {
+    match term {
+        Term::Variable(idx) => Term::Variable(idx),
+        Term::Lambda { body, erased } => Term::Lambda {
+            erased,
+            body: Box::new(bump_to_system(body.into_inner())),
+        },
+        Term::Apply {
+            function,
+            argument,
+            erased,
+        } => Term::Apply {
+            function: Box::new(bump_to_system(function.into_inner())),
+            argument: Box::new(bump_to_system(argument.into_inner())),
+            erased,
+        },
+        Term::Put(term) => Term::Put(Box::new(bump_to_system(term.into_inner()))),
+        Term::Duplicate { expression, body } => Term::Duplicate {
+            expression: Box::new(bump_to_system(expression.into_inner())),
+            body: Box::new(bump_to_system(body.into_inner())),
+        },
+        Term::Reference(reference) => Term::Reference(reference),
+        Term::Primitive(prim) => Term::Primitive(prim),
+        Term::Universe => Term::Universe,
+        Term::Function {
+            argument_type,
+            return_type,
+            erased,
+        } => Term::Function {
+            erased,
+            argument_type: Box::new(bump_to_system(argument_type.into_inner())),
+            return_type: Box::new(bump_to_system(return_type.into_inner())),
+        },
+        Term::Annotation {
+            checked,
+            expression,
+            ty,
+        } => Term::Annotation {
+            checked,
+            expression: Box::new(bump_to_system(expression.into_inner())),
+            ty: Box::new(bump_to_system(ty.into_inner())),
+        },
+        Term::Wrap(term) => Term::Wrap(Box::new(bump_to_system(term.into_inner()))),
     }
 }
 
@@ -427,6 +475,36 @@ fn main() {
                         )
                         .unwrap();
                         eprintln!("EXPORTED definitions");
+                    }
+                    "--export-terms" => {
+                        let mut terms = Terms { data: vec![] };
+                        for (name, (ty, term)) in &defs {
+                            terms.data.push((
+                                AbsolutePath(
+                                    name.0
+                                        .clone()
+                                        .into_iter()
+                                        .map(|a| a.as_str().to_owned())
+                                        .collect(),
+                                ),
+                                bump_to_system(defs_bm.copy(ty)).map_reference(|name| {
+                                    Term::Reference(AbsolutePath(
+                                        name.0.into_iter().map(|a| a.as_str().to_owned()).collect(),
+                                    ))
+                                }),
+                                bump_to_system(defs_bm.copy(term)).map_reference(|name| {
+                                    Term::Reference(AbsolutePath(
+                                        name.0.into_iter().map(|a| a.as_str().to_owned()).collect(),
+                                    ))
+                                }),
+                            ));
+                        }
+                        std::fs::write(
+                            args.next().expect("expected path for terms export"),
+                            bincode::serialize(&terms).unwrap(),
+                        )
+                        .unwrap();
+                        eprintln!("EXPORTED terms");
                     }
                     _ => {}
                 }

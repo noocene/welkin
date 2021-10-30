@@ -1,6 +1,11 @@
 ~data WhelkRequest {
     print(data: Sized[String]),
     prompt(data: Unit),
+    define(
+        name: Sized[String],
+        type: *,
+        term: type
+    ),
     loop[
         state: *,
         steps: Size,

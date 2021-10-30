@@ -3,3 +3,4 @@ pkg/
 package.lock
 yarn.lock
 welkin/*
+dist/

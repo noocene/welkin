@@ -128,6 +128,7 @@
         
         .info {
             color: var(--info-color);
+            margin-top: 8px;
         }
         
         .info .info-header {
@@ -288,15 +289,32 @@
             outline: none;
         }
         
-        .scratchpad.wrapper {
-            margin-bottom: 16px;
+        .scratchpad.inner {
+            margin-bottom: 8px;
             display: flex;
             flex-flow: row nowrap;
             justify-content: space-between;
         }
         
+        .scratchpad.output {
+            margin-bottom: 16px;
+        }
+        
         .scratchpad.content {
             max-width: 80%;
+        }
+        
+        .printed.content {
+            margin-top: 8px;
+        }
+        
+        .printed.content:not(.error)::before {
+            content: '> ';
+            opacity: 0.5;
+        }
+        
+        .printed.content.error {
+            color: #CC6666;
         }
         
         .scratchpad.status::before {

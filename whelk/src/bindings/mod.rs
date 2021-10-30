@@ -40,6 +40,12 @@ bind! {
         #[wrapper = "WhelkRequest::loop.step"]
         struct WhelkRequestLoopStep;
 
+        #[wrapper = "WhelkRequest::define.type"]
+        struct WhelkRequestDefineType;
+
+        #[wrapper = "WhelkRequest::define.term"]
+        struct WhelkRequestDefineTerm;
+
         #[wrapper = "Any"]
         struct Any;
 
@@ -62,5 +68,7 @@ impl_wrapper! {
 impl_wrapper! {
     w::WhelkRequestLoopInitialState,
     w::WhelkRequestLoopContinuePredicate,
-    w::WhelkRequestLoopStep
+    w::WhelkRequestLoopStep,
+    w::WhelkRequestDefineType,
+    w::WhelkRequestDefineTerm
 }

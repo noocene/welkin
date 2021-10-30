@@ -2,7 +2,9 @@ async function entry() {
     let app = await
     import ('./pkg');
 
-    let term = new Uint8Array(await (await (await fetch(new Request('/term'))).blob()).arrayBuffer());
+    let terms = await (await (await fetch(new Request('/terms'))).blob()).arrayBuffer();
+
+    let term = new Uint8Array(terms);
     app.entry(term);
 }
 

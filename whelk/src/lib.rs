@@ -3,15 +3,18 @@ macro_rules! console_log {
     ($($t:tt)*) => (#[allow(unused_unsafe)] unsafe { web_sys::console::log_1(&format_args!($($t)*).to_string().into()) })
 }
 
-use std::{cell::RefCell, panic, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, error::Error, mem::replace, panic, rc::Rc};
 
+use async_recursion::async_recursion;
+use bindings::{io::iter::LoopRequest, w};
 use edit::{
     zipper::{self, Cursor, TermData},
     Scratchpad, UiSection,
 };
+use evaluator::{Evaluator, Substitution};
 use futures::{
     channel::mpsc::{channel, Receiver},
-    stream, StreamExt,
+    stream, Stream, StreamExt,
 };
 use wasm_bindgen::{
     prelude::{wasm_bindgen, Closure},
@@ -19,6 +22,8 @@ use wasm_bindgen::{
 };
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{Element, KeyboardEvent, Node};
+use welkin::Terms;
+use welkin_binding::{FromAnalogue, FromWelkin, ToWelkin};
 use welkin_core::term::{DefinitionResult, MapCache, Term, TypedDefinitions};
 
 mod bindings;
@@ -30,15 +35,24 @@ thread_local! {
 }
 
 #[wasm_bindgen]
-pub fn entry(_: Vec<u8>) -> Result<(), JsValue> {
+pub fn entry(terms: Vec<u8>) -> Result<(), JsValue> {
     spawn_local(async move {
-        main().await.unwrap();
+        main(terms).await.unwrap();
     });
     Ok(())
 }
 
-async fn main() -> Result<(), JsValue> {
+#[derive(Debug)]
+enum Block {
+    Info { header: String, content: String },
+    Printed { data: String },
+    Error { data: String },
+}
+
+async fn main(terms: Vec<u8>) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
+
+    let terms: Terms = bincode::deserialize(&terms).unwrap();
 
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
@@ -67,8 +81,12 @@ async fn main() -> Result<(), JsValue> {
         data.push(TermData::Hole);
     }
 
+    let terms = Rc::new(terms);
+
+    let defs = Rc::new(RefCell::new(HashMap::new()));
+
     for term in data {
-        let pad = add_scratchpad(term.into(), pads.clone()).await?;
+        let pad = add_scratchpad(term.into(), pads.clone(), defs.clone(), terms.clone()).await?;
 
         container.append_child(&pad.wrapper)?;
 
@@ -125,9 +143,52 @@ fn save(pads: Rc<RefCell<Vec<ScratchpadContainer>>>) {
         .unwrap();
 }
 
+fn push_paragraph(data: Block, container: &Element) {
+    let window = web_sys::window().unwrap();
+    let document = window.document().unwrap();
+    let body = document.body().unwrap();
+    match data {
+        Block::Info { header, content } => {
+            let paragraph = document.create_element("p").unwrap();
+            let header_span = document.create_element("span").unwrap();
+            header_span.class_list().add_1("info-header").unwrap();
+            paragraph.class_list().add_1("info").unwrap();
+            header_span.set_text_content(Some(&header));
+            paragraph.append_child(&header_span).unwrap();
+            let text = document.create_text_node(&content);
+            paragraph.append_child(&text).unwrap();
+            container.append_child(&paragraph).unwrap();
+        }
+        Block::Printed { data } => {
+            let wrapper = document.create_element("div").unwrap();
+            wrapper.class_list().add_2("printed", "wrapper").unwrap();
+            let paragraph = document.create_element("p").unwrap();
+            paragraph.class_list().add_2("printed", "content").unwrap();
+            paragraph.set_text_content(Some(&data));
+            wrapper.append_child(&paragraph).unwrap();
+            container.append_child(&wrapper).unwrap();
+        }
+        Block::Error { data } => {
+            let wrapper = document.create_element("div").unwrap();
+            wrapper.class_list().add_2("printed", "wrapper").unwrap();
+            let paragraph = document.create_element("p").unwrap();
+            paragraph
+                .class_list()
+                .add_3("printed", "error", "content")
+                .unwrap();
+            paragraph.set_text_content(Some(&data));
+            wrapper.append_child(&paragraph).unwrap();
+            container.append_child(&wrapper).unwrap();
+        }
+    }
+    window.scroll_to_with_x_and_y(0., body.scroll_height() as f64);
+}
+
 async fn add_scratchpad(
     term: zipper::Term,
     pads: Rc<RefCell<Vec<ScratchpadContainer>>>,
+    defs: Rc<RefCell<HashMap<String, (Term<String>, Term<String>)>>>,
+    terms: Rc<Terms>,
 ) -> Result<ScratchpadContainer, JsValue> {
     let call: Rc<RefCell<Box<dyn FnMut(JsValue)>>> = Rc::new(RefCell::new(Box::new(|_| {})));
 
@@ -139,6 +200,8 @@ async fn add_scratchpad(
     })
     .await?;
 
+    let output = pad.output.clone();
+
     let receiver = pad.receiver.take().unwrap();
 
     let wrapper = pad.wrapper.clone();
@@ -146,6 +209,8 @@ async fn add_scratchpad(
     *call.borrow_mut() = Box::new({
         let wrapper = wrapper.clone();
         let pads = pads.clone();
+        let terms = terms.clone();
+        let defs = defs.clone();
         move |e| {
             if e.dyn_ref::<KeyboardEvent>().is_none() {
                 let pads = pads.clone();
@@ -161,10 +226,17 @@ async fn add_scratchpad(
                     e.prevent_default();
                     let wrapper = wrapper.clone();
                     let pads = pads.clone();
+                    let terms = terms.clone();
+                    let defs = defs.clone();
                     spawn_local(async move {
-                        let pad = add_scratchpad(zipper::Term::Hole(()), pads.clone())
-                            .await
-                            .unwrap();
+                        let pad = add_scratchpad(
+                            zipper::Term::Hole(()),
+                            pads.clone(),
+                            defs.clone(),
+                            terms.clone(),
+                        )
+                        .await
+                        .unwrap();
                         let idx = pads
                             .borrow()
                             .iter()
@@ -212,10 +284,13 @@ async fn add_scratchpad(
         let status = pad.status.clone();
         let data = pad.data.clone();
         let pads = pads.clone();
+        let terms = terms.clone();
         async move {
             let mut receiver = Box::pin(stream::once(async { () }).chain(receiver));
 
             while let Some(()) = receiver.next().await {
+                output.set_inner_html("");
+
                 status.remove_attribute("class").unwrap();
                 if let Some(term) = {
                     let mut data = data.borrow().clone();
@@ -224,26 +299,64 @@ async fn add_scratchpad(
                     }
                     data.into_term()
                 } {
-                    if let Some((name, ty, term)) = read_definition(&term) {
-                        CACHE.with(|cache| {
-                            let defs = DefWrapper(pads.clone());
-                            let cache = &mut *cache.borrow_mut();
-                            if let Ok(()) = ty.check(&Term::Universe, &defs, cache) {
-                                if let Ok(()) = term.check(&ty, &defs, cache) {
-                                    status
-                                        .class_list()
-                                        .add_3("scratchpad", "status", "def-ok")
-                                        .unwrap();
-                                    return;
-                                }
+                    CACHE.with(|cache| {
+                        let defs = DefWrapper(defs.clone(), terms.clone());
+                        let cache = &mut *cache.borrow_mut();
+                        match term.check(&Term::Reference("Whelk".into()), &defs, cache) {
+                            Ok(()) => {
+                                status
+                                    .class_list()
+                                    .add_3("scratchpad", "status", "def-ok")
+                                    .unwrap();
+
+                                let evaluator = Substitution(defs.clone());
+
+                                let term = evaluator.evaluate(term).unwrap();
+
+                                let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
+
+                                let io = match whelk {
+                                    w::Whelk::new { data } => match data {
+                                        w::BoxPoly::new { data } => data,
+                                    },
+                                };
+
+                                let output = output.clone();
+
+                                spawn_local(async move {
+                                    output.set_inner_html("");
+
+                                    run_io(
+                                        io,
+                                        &|block| push_paragraph(block, &output),
+                                        &mut stream::pending(),
+                                        &defs,
+                                        &evaluator,
+                                    )
+                                    .await
+                                    .unwrap();
+                                });
+
+                                return;
                             }
-                            status
-                                .class_list()
-                                .add_3("scratchpad", "status", "def-err")
-                                .unwrap();
-                        });
-                        continue;
-                    }
+                            Err(e) => {
+                                output.set_inner_html("");
+
+                                push_paragraph(
+                                    Block::Error {
+                                        data: format!("{:?}", e),
+                                    },
+                                    &output,
+                                );
+                            }
+                        }
+
+                        status
+                            .class_list()
+                            .add_3("scratchpad", "status", "def-err")
+                            .unwrap();
+                    });
+                    continue;
                 }
                 status.class_list().add_2("scratchpad", "status").unwrap();
             }
@@ -253,25 +366,32 @@ async fn add_scratchpad(
     Ok(pad)
 }
 
-pub struct DefWrapper(Rc<RefCell<Vec<ScratchpadContainer>>>);
+#[derive(Clone)]
+pub struct DefWrapper(
+    Rc<RefCell<HashMap<String, (Term<String>, Term<String>)>>>,
+    Rc<Terms>,
+);
 
 impl TypedDefinitions<String> for DefWrapper {
     fn get_typed(&self, n: &String) -> Option<DefinitionResult<(Term<String>, Term<String>)>> {
-        self.0.borrow().iter().find_map(|a| {
-            let a = {
-                let mut data = a.data.borrow().clone();
-                while !data.is_top() {
-                    data = data.ascend();
-                }
-                data.into_term().as_ref().and_then(read_definition)
-            };
-            if let Some((name, ty, term)) = a {
-                if &name == n {
-                    return Some(DefinitionResult::Owned((ty, term)));
-                }
-            }
-            None
-        })
+        self.0
+            .borrow()
+            .get(n)
+            .map(|(ty, term)| DefinitionResult::Owned((ty.clone(), term.clone())))
+            .or_else(|| {
+                self.1.data.iter().find_map(|(name, ty, term)| {
+                    if &format!("{:?}", name) == n {
+                        Some(DefinitionResult::Owned((
+                            ty.clone()
+                                .map_reference(|a| Term::Reference(format!("{:?}", a))),
+                            term.clone()
+                                .map_reference(|a| Term::Reference(format!("{:?}", a))),
+                        )))
+                    } else {
+                        None
+                    }
+                })
+            })
     }
 }
 
@@ -315,6 +435,7 @@ struct ScratchpadContainer {
     data: Rc<RefCell<Cursor<UiSection>>>,
     receiver: Option<Receiver<()>>,
     status: Element,
+    output: Element,
     _closures: Vec<Closure<dyn FnMut(JsValue)>>,
 }
 
@@ -338,14 +459,22 @@ async fn make_scratchpad(
     let wrapper = document.create_element("div")?;
     wrapper.class_list().add_2("scratchpad", "wrapper")?;
 
+    let inner = document.create_element("div")?;
+    inner.class_list().add_2("scratchpad", "inner")?;
+
     let content = document.create_element("div")?;
     content.class_list().add_2("scratchpad", "content")?;
 
     let status = document.create_element("div")?;
     status.class_list().add_2("scratchpad", "status")?;
 
-    wrapper.append_child(&content)?;
-    wrapper.append_child(&status)?;
+    let output = document.create_element("div")?;
+    output.class_list().add_2("scratchpad", "output")?;
+
+    wrapper.append_child(&inner)?;
+    inner.append_child(&content)?;
+    inner.append_child(&status)?;
+    wrapper.append_child(&output)?;
 
     let mut pad = Scratchpad::new(term, content.into());
 
@@ -380,8 +509,130 @@ async fn make_scratchpad(
     Ok(ScratchpadContainer {
         wrapper,
         data,
+        output,
         status,
         _closures: vec![keydown_listener],
         receiver: Some(receiver),
     })
+}
+
+#[async_recursion(?Send)]
+async fn run_io<
+    F: Fn(Block),
+    R: Stream<Item = String> + Unpin,
+    E: Evaluator + 'static,
+    D: Clone + FromAnalogue + 'static,
+>(
+    mut io: w::WhelkIO<D>,
+    push_paragraph: &F,
+    receive: &mut R,
+    defs: &DefWrapper,
+    evaluator: &E,
+) -> Result<D, anyhow::Error>
+where
+    E::Error: Error + Send + Sync,
+    <<D as FromAnalogue>::Analogue as FromWelkin>::Error: Send + Sync + Error,
+{
+    match io {
+        w::IO::end { value } => Ok(value),
+        w::IO::call {
+            ref mut request, ..
+        } => {
+            push_paragraph(Block::Info {
+                header: "REQ".into(),
+                content: match request {
+                    w::WhelkRequest::r#loop { .. } => "loop",
+                    w::WhelkRequest::r#prompt { .. } => "prompt",
+                    w::WhelkRequest::r#print { .. } => "print",
+                    w::WhelkRequest::r#define { .. } => "define",
+                }
+                .into(),
+            });
+
+            match request {
+                w::WhelkRequest::r#loop {
+                    initial,
+                    r#continue,
+                    step,
+                } => {
+                    let mut request = LoopRequest::new(
+                        replace(&mut initial.0, Term::Universe),
+                        replace(&mut r#continue.0, Term::Universe),
+                        replace(&mut step.0, Term::Universe),
+                    );
+                    loop {
+                        request
+                            .step(&*evaluator, |io| async {
+                                run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator)
+                                    .await
+                            })
+                            .await?;
+                        if {
+                            // TODO allow loops later in background
+                            request.proceed(&*evaluator)?;
+                            false
+                        } {
+                            continue;
+                        } else {
+                            break Ok(FromAnalogue::from_analogue(FromWelkin::from_welkin(
+                                request.into_state(),
+                            )?));
+                        }
+                    }
+                }
+                w::WhelkRequest::prompt { .. } => {
+                    // TODO reinstate actual message input
+                    // let message = receive.next().await.unwrap();
+                    let message: String = "placeholder".into();
+                    push_paragraph(Block::Info {
+                        header: "FUL".into(),
+                        content: format!("{:?}", message.clone()),
+                    });
+                    let io = io.into_request().unwrap().fulfill(
+                        w::Sized::<w::String>::new {
+                            size: message.len().into(),
+                            data: message.into(),
+                        }
+                        .to_welkin()
+                        .unwrap(),
+                        &*evaluator,
+                    )?;
+                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                }
+                w::WhelkRequest::print { data } => {
+                    push_paragraph(Block::Printed {
+                        data: match data {
+                            w::Sized::new { data, .. } => data.clone().into(),
+                        },
+                    });
+                    let io = io
+                        .into_request()
+                        .unwrap()
+                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
+                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                }
+                w::WhelkRequest::define { name, term, r#type } => {
+                    let name: String = match name {
+                        w::Sized::new { data, .. } => data.clone().into(),
+                    };
+
+                    push_paragraph(Block::Info {
+                        header: "DEF".into(),
+                        content: format!("{:?}", name.clone()),
+                    });
+
+                    let term = term.0.clone();
+                    let ty = r#type.0.clone();
+
+                    defs.0.borrow_mut().insert(name, (ty, term));
+
+                    let io = io
+                        .into_request()
+                        .unwrap()
+                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
+                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                }
+            }
+        }
+    }
 }

@@ -85,3 +85,41 @@ forever[
     complexity,
     Unit
 ](_ |> operation, Unit::new)
+
+define:
+Sized[String] ->
+* ~as A       ->
+A             ->
+WhelkIO[Unit, ~literal Size 1]
+
+name |>
+ty |>
+term |>
+WhelkIO::call[Unit, Size::zero](
+    WhelkRequest::define(name, ty, term),
+    resp |> WhelkIO::pure[Unit](resp)
+)
+
+unit_whelk:
+WhelkIO[Unit, ~literal Size 1] ->
+Whelk
+
+io |>
+Whelk::new[
+    ~literal Size 1,
+    ~literal Size 0
+](
+    BoxPoly::new[
+        WhelkIO[Unit, ~literal Size 1],
+        ~literal Size 0
+    ](io)
+)
+
+empty_string:
+Sized[String]
+
+Sized::new[String](Size::zero, ~literal String "")
+
+hello_world:
+Sized[String]
+Sized::new[String](~literal Size 11, ~literal String "hello world")

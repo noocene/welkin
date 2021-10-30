@@ -21,6 +21,11 @@ pub mod definitions;
 
 pub mod compiler;
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Terms {
+    pub data: Vec<(AbsolutePath, Term<AbsolutePath>, Term<AbsolutePath>)>,
+}
+
 mod sealed {
     use super::Term;
 

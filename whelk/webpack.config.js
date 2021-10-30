@@ -21,6 +21,11 @@ module.exports = {
             TextDecoder: ['text-encoding', 'TextDecoder'],
             TextEncoder: ['text-encoding', 'TextEncoder']
         }),
+        new CopyWebpackPlugin({
+            patterns: [
+                { from: "welkin", to: "" },
+            ],
+        }),
     ],
     mode: 'development',
     experiments: {
