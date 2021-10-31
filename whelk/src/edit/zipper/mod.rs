@@ -9,7 +9,7 @@ use std::{
     fmt::{self, Debug},
     rc::Rc,
 };
-mod analysis;
+pub mod analysis;
 pub mod dynamic;
 use serde::{Deserialize, Serialize};
 use welkin_core::term::{self, Index};

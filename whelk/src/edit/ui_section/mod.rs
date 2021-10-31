@@ -9,7 +9,7 @@ use web_sys::{Element, Node};
 
 use super::{
     focus_contenteditable, focus_element,
-    zipper::{Cursor, RefCount, Term},
+    zipper::{Cursor, Term},
 };
 
 pub mod mutations;
@@ -22,7 +22,7 @@ pub use add_ui::*;
 #[derive(Debug, Clone)]
 pub struct UiSection {
     pub(crate) variant: UiSectionVariance,
-    pub(crate) annotation: Rc<RefCell<Term<(), RefCount>>>,
+    pub(crate) annotation: Rc<RefCell<Term<()>>>,
 }
 
 impl UiSection {

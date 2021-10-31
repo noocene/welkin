@@ -8,7 +8,11 @@ use std::{cell::RefCell, collections::HashMap, error::Error, mem::replace, panic
 use async_recursion::async_recursion;
 use bindings::{io::iter::LoopRequest, w};
 use edit::{
-    zipper::{self, Cursor, TermData},
+    zipper::{
+        self,
+        analysis::{self, AnalysisTerm},
+        Cursor, TermData,
+    },
     Scratchpad, UiSection,
 };
 use evaluator::{Evaluator, Substitution};
@@ -292,17 +296,24 @@ async fn add_scratchpad(
                 output.set_inner_html("");
 
                 status.remove_attribute("class").unwrap();
-                if let Some(term) = {
-                    let mut data = data.borrow().clone();
-                    while !data.is_top() {
-                        data = data.ascend();
-                    }
-                    data.into_term()
-                } {
+
+                let mut data = data.borrow().clone();
+                while !data.is_top() {
+                    data = data.ascend();
+                }
+
+                let term: AnalysisTerm<Option<UiSection>> = data.clone().into();
+                let conv_term = data.into_term();
+
+                {
                     CACHE.with(|cache| {
                         let defs = DefWrapper(defs.clone(), terms.clone());
                         let cache = &mut *cache.borrow_mut();
-                        match term.check(&Term::Reference("Whelk".into()), &defs, cache) {
+                        match term.check_in(
+                            &AnalysisTerm::Reference("Whelk".into(), None),
+                            &defs,
+                            cache,
+                        ) {
                             Ok(()) => {
                                 status
                                     .class_list()
@@ -311,33 +322,35 @@ async fn add_scratchpad(
 
                                 let evaluator = Substitution(defs.clone());
 
-                                let term = evaluator.evaluate(term).unwrap();
+                                if let Some(term) = conv_term {
+                                    let term = evaluator.evaluate(term).unwrap();
 
-                                let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
+                                    let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
 
-                                let io = match whelk {
-                                    w::Whelk::new { data } => match data {
-                                        w::BoxPoly::new { data } => data,
-                                    },
-                                };
+                                    let io = match whelk {
+                                        w::Whelk::new { data } => match data {
+                                            w::BoxPoly::new { data } => data,
+                                        },
+                                    };
 
-                                let output = output.clone();
+                                    let output = output.clone();
 
-                                spawn_local(async move {
-                                    output.set_inner_html("");
+                                    spawn_local(async move {
+                                        output.set_inner_html("");
 
-                                    run_io(
-                                        io,
-                                        &|block| push_paragraph(block, &output),
-                                        &mut stream::pending(),
-                                        &defs,
-                                        &evaluator,
-                                    )
-                                    .await
-                                    .unwrap();
-                                });
+                                        run_io(
+                                            io,
+                                            &|block| push_paragraph(block, &output),
+                                            &mut stream::pending(),
+                                            &defs,
+                                            &evaluator,
+                                        )
+                                        .await
+                                        .unwrap();
+                                    });
 
-                                return;
+                                    return;
+                                }
                             }
                             Err(e) => {
                                 output.set_inner_html("");
@@ -371,6 +384,27 @@ pub struct DefWrapper(
     Rc<RefCell<HashMap<String, (Term<String>, Term<String>)>>>,
     Rc<Terms>,
 );
+
+impl analysis::TypedDefinitions<Option<UiSection>> for DefWrapper {
+    fn get_typed(
+        &self,
+        name: &str,
+    ) -> Option<
+        analysis::DefinitionResult<(
+            AnalysisTerm<Option<UiSection>>,
+            AnalysisTerm<Option<UiSection>>,
+        )>,
+    > {
+        TypedDefinitions::get_typed(self, &name.to_owned()).map(|defs| match defs {
+            DefinitionResult::Borrowed((ty, term)) => {
+                analysis::DefinitionResult::Owned((ty.clone().into(), term.clone().into()))
+            }
+            DefinitionResult::Owned((ty, term)) => {
+                analysis::DefinitionResult::Owned((ty.into(), term.into()))
+            }
+        })
+    }
+}
 
 impl TypedDefinitions<String> for DefWrapper {
     fn get_typed(&self, n: &String) -> Option<DefinitionResult<(Term<String>, Term<String>)>> {

@@ -187,10 +187,6 @@ impl Scratchpad {
         scratchpad
     }
 
-    pub fn annotate(&self, data: Term) {
-        self.data.borrow_mut().annotate(data);
-    }
-
     pub fn force_update(&mut self, data: Term) {
         *self.data.borrow_mut() = add_ui(data, &self.sender).into();
         for i in 0..self.target_node.child_nodes().length() {
