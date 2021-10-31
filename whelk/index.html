@@ -308,13 +308,18 @@
             margin-top: 8px;
         }
         
-        .printed.content:not(.error)::before {
+        .printed.content:not(.error):not(.inference)::before {
             content: '> ';
             opacity: 0.5;
         }
         
         .printed.content.error {
             color: #CC6666;
+        }
+        
+        .printed.content.inference::before {
+            content: 'goal: ';
+            opacity: 0.5;
         }
         
         .scratchpad.status::before {

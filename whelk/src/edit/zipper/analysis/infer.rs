@@ -48,13 +48,17 @@ impl<T> From<term::NormalizationError> for AnalysisError<T> {
 }
 
 impl<T> AnalysisTerm<Option<T>> {
-    pub fn infer_in<U: TypedDefinitions<Option<T>>>(
+    pub fn infer_in<
+        U: TypedDefinitions<Option<T>>,
+        F: FnMut(Option<&T>, &AnalysisTerm<Option<T>>),
+    >(
         &self,
         definitions: &U,
+        annotate: &mut F,
         cache: &mut impl EqualityCache,
     ) -> Result<AnalysisTerm<Option<T>>, AnalysisError<Option<T>>>
     where
-        T: Clone,
+        T: Clone + std::fmt::Debug,
     {
         use AnalysisTerm::*;
 
@@ -62,7 +66,7 @@ impl<T> AnalysisTerm<Option<T>> {
             Universe(_) => Universe(None),
             Annotation { ty, term, checked } => {
                 if !checked {
-                    term.check_in(ty, definitions, cache)?;
+                    term.check_in(ty, definitions, &mut *annotate, cache)?;
                 }
                 *ty.clone()
             }
@@ -88,10 +92,15 @@ impl<T> AnalysisTerm<Option<T>> {
                     term: Box::new(AnalysisTerm::Variable(0, None)),
                     ty: argument_type.clone(),
                 };
-                argument_type.check_in(&Universe(None), definitions, &mut *cache)?;
+                argument_type.check_in(
+                    &Universe(None),
+                    definitions,
+                    &mut *annotate,
+                    &mut *cache,
+                )?;
                 let mut return_type = return_type.clone();
                 return_type.substitute_function_in(self_annotation, &argument_annotation);
-                return_type.check_in(&Universe(None), definitions, cache)?;
+                return_type.check_in(&Universe(None), definitions, &mut *annotate, cache)?;
                 Universe(None)
             }
             Application {
@@ -100,7 +109,8 @@ impl<T> AnalysisTerm<Option<T>> {
                 erased,
                 ..
             } => {
-                let mut function_type = function.infer_in(definitions, &mut *cache)?;
+                let mut function_type =
+                    function.infer_in(definitions, &mut *annotate, &mut *cache)?;
                 function_type.weak_normalize_in(definitions)?;
                 if let Function {
                     argument_type,
@@ -125,7 +135,7 @@ impl<T> AnalysisTerm<Option<T>> {
                         ty: argument_type.clone(),
                         checked: true,
                     };
-                    argument.check_in(argument_type, definitions, cache)?;
+                    argument.check_in(argument_type, definitions, &mut *annotate, cache)?;
                     let mut return_type = return_type.clone();
                     return_type.substitute_function_in(self_annotation, &argument_annotation);
                     return_type.weak_normalize_in(definitions)?;
@@ -137,7 +147,7 @@ impl<T> AnalysisTerm<Option<T>> {
             Variable { .. } => self.clone(),
 
             Wrap(expression, _) => {
-                let expression_ty = expression.infer_in(definitions, cache)?;
+                let expression_ty = expression.infer_in(definitions, &mut *annotate, cache)?;
                 if let AnalysisTerm::Universe(_) = expression_ty {
                 } else {
                     Err(AnalysisError::InvalidWrap {
@@ -147,7 +157,10 @@ impl<T> AnalysisTerm<Option<T>> {
                 }
                 Universe(None)
             }
-            Put(expression, _) => Wrap(Box::new(expression.infer_in(definitions, cache)?), None),
+            Put(expression, _) => Wrap(
+                Box::new(expression.infer_in(definitions, &mut *annotate, cache)?),
+                None,
+            ),
 
             _ => Err(AnalysisError::Impossible(self.clone()))?,
         })

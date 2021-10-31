@@ -10,7 +10,7 @@ use bindings::{io::iter::LoopRequest, w};
 use edit::{
     zipper::{
         self,
-        analysis::{self, AnalysisTerm},
+        analysis::{self, AnalysisError, AnalysisTerm},
         Cursor, TermData,
     },
     Scratchpad, UiSection,
@@ -51,6 +51,7 @@ enum Block {
     Info { header: String, content: String },
     Printed { data: String },
     Error { data: String },
+    Term { data: AnalysisTerm<()> },
 }
 
 async fn main(terms: Vec<u8>) -> Result<(), JsValue> {
@@ -184,6 +185,18 @@ fn push_paragraph(data: Block, container: &Element) {
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
         }
+        Block::Term { data } => {
+            let wrapper = document.create_element("div").unwrap();
+            wrapper.class_list().add_2("printed", "wrapper").unwrap();
+            let paragraph = document.create_element("p").unwrap();
+            paragraph
+                .class_list()
+                .add_3("printed", "inference", "content")
+                .unwrap();
+            paragraph.set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
+            wrapper.append_child(&paragraph).unwrap();
+            container.append_child(&wrapper).unwrap();
+        }
     }
     window.scroll_to_with_x_and_y(0., body.scroll_height() as f64);
 }
@@ -297,7 +310,9 @@ async fn add_scratchpad(
 
                 status.remove_attribute("class").unwrap();
 
-                let mut data = data.borrow().clone();
+                let d = data.clone();
+
+                let mut data = d.borrow().clone();
                 while !data.is_top() {
                     data = data.ascend();
                 }
@@ -309,9 +324,16 @@ async fn add_scratchpad(
                     CACHE.with(|cache| {
                         let defs = DefWrapper(defs.clone(), terms.clone());
                         let cache = &mut *cache.borrow_mut();
+                        let data = d;
                         match term.check_in(
                             &AnalysisTerm::Reference("Whelk".into(), None),
                             &defs,
+                            &mut |annotation, ty| {
+                                if let Some(annotation) = annotation {
+                                    let annotation = &annotation.annotation;
+                                    *annotation.borrow_mut() = Some(ty.clone().clear_annotation());
+                                }
+                            },
                             cache,
                         ) {
                             Ok(()) => {
@@ -355,23 +377,36 @@ async fn add_scratchpad(
                             Err(e) => {
                                 output.set_inner_html("");
 
-                                push_paragraph(
-                                    Block::Error {
-                                        data: format!("{:?}", e),
-                                    },
-                                    &output,
-                                );
+                                if let AnalysisError::Impossible(AnalysisTerm::Hole(_)) = e {
+                                    status.class_list().add_2("scratchpad", "status").unwrap();
+
+                                    if let Cursor::Hole(cursor) = &*data.borrow() {
+                                        let annotation = &cursor.annotation().annotation;
+
+                                        if let Some(ty) = &*annotation.borrow() {
+                                            push_paragraph(
+                                                Block::Term { data: ty.clone() },
+                                                &output,
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    status
+                                        .class_list()
+                                        .add_3("scratchpad", "status", "def-err")
+                                        .unwrap();
+
+                                    push_paragraph(
+                                        Block::Error {
+                                            data: format!("{:?}", e),
+                                        },
+                                        &output,
+                                    );
+                                }
                             }
                         }
-
-                        status
-                            .class_list()
-                            .add_3("scratchpad", "status", "def-err")
-                            .unwrap();
                     });
-                    continue;
                 }
-                status.class_list().add_2("scratchpad", "status").unwrap();
             }
         }
     });

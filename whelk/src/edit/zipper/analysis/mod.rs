@@ -1,5 +1,6 @@
 mod check;
 mod infer;
+pub use infer::AnalysisError;
 mod normalize;
 mod shift;
 mod substitute;
@@ -114,6 +115,94 @@ pub enum AnalysisTerm<T> {
         term: Box<AnalysisTerm<T>>,
         ty: Box<AnalysisTerm<T>>,
     },
+}
+
+impl<T> AnalysisTerm<Option<T>> {
+    fn annotation(&self) -> Option<&T> {
+        match self {
+            AnalysisTerm::Lambda { annotation, .. } => annotation.as_ref().clone(),
+            AnalysisTerm::Variable(_, annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Application { annotation, .. } => annotation.as_ref().clone(),
+            AnalysisTerm::Put(_, annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Duplication { annotation, .. } => annotation.as_ref().clone(),
+            AnalysisTerm::Reference(_, annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Universe(annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => annotation.as_ref().clone(),
+            AnalysisTerm::Wrap(_, annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Hole(annotation) => annotation.as_ref().clone(),
+            AnalysisTerm::Annotation { .. } => None,
+        }
+    }
+
+    pub fn clear_annotation(self) -> AnalysisTerm<()> {
+        match self {
+            AnalysisTerm::Lambda {
+                erased, name, body, ..
+            } => AnalysisTerm::Lambda {
+                erased,
+                name,
+                annotation: (),
+                body: Box::new(body.clear_annotation()),
+            },
+            AnalysisTerm::Variable(idx, _) => AnalysisTerm::Variable(idx, ()),
+            AnalysisTerm::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => AnalysisTerm::Application {
+                erased,
+                function: Box::new(function.clear_annotation()),
+                argument: Box::new(argument.clear_annotation()),
+                annotation: (),
+            },
+            AnalysisTerm::Put(term, _) => AnalysisTerm::Put(Box::new(term.clear_annotation()), ()),
+            AnalysisTerm::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => AnalysisTerm::Duplication {
+                binder,
+                expression: Box::new(expression.clear_annotation()),
+                body: Box::new(body.clear_annotation()),
+                annotation: (),
+            },
+            AnalysisTerm::Reference(r, _) => AnalysisTerm::Reference(r, ()),
+            AnalysisTerm::Universe(_) => AnalysisTerm::Universe(()),
+            AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new(argument_type.clear_annotation()),
+                return_type: Box::new(return_type.clear_annotation()),
+                annotation: (),
+            },
+            AnalysisTerm::Wrap(term, _) => {
+                AnalysisTerm::Wrap(Box::new(term.clear_annotation()), ())
+            }
+            AnalysisTerm::Hole(_) => AnalysisTerm::Hole(()),
+            AnalysisTerm::Annotation { checked, term, ty } => AnalysisTerm::Annotation {
+                checked,
+                term: Box::new(term.clear_annotation()),
+                ty: Box::new(ty.clear_annotation()),
+            },
+        }
+    }
 }
 
 impl<T: Clone> From<Cursor<T>> for AnalysisTerm<Option<T>> {

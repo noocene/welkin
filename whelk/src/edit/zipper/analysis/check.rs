@@ -5,14 +5,18 @@ use crate::edit::zipper::analysis::DefAdapter;
 use super::{infer::AnalysisError, AnalysisTerm, TypedDefinitions};
 
 impl<T> AnalysisTerm<Option<T>> {
-    pub fn check_in<U: TypedDefinitions<Option<T>>>(
+    pub fn check_in<
+        U: TypedDefinitions<Option<T>>,
+        F: FnMut(Option<&T>, &AnalysisTerm<Option<T>>),
+    >(
         &self,
         ty: &AnalysisTerm<Option<T>>,
         definitions: &U,
+        annotate: &mut F,
         cache: &mut impl EqualityCache,
     ) -> Result<(), AnalysisError<Option<T>>>
     where
-        T: Clone,
+        T: Clone + std::fmt::Debug,
     {
         use AnalysisTerm::*;
 
@@ -56,7 +60,7 @@ impl<T> AnalysisTerm<Option<T>> {
 
                     let mut body = body.clone();
                     body.substitute_top_in_unshifted(&argument_annotation);
-                    body.check_in(&*return_type, definitions, cache)?;
+                    body.check_in(&*return_type, definitions, &mut *annotate, cache)?;
                 } else {
                     Err(AnalysisError::NonFunctionLambda {
                         term: self.clone(),
@@ -67,7 +71,8 @@ impl<T> AnalysisTerm<Option<T>> {
             Duplication {
                 expression, body, ..
             } => {
-                let mut expression_ty = expression.infer_in(definitions, &mut *cache)?;
+                let mut expression_ty =
+                    expression.infer_in(definitions, &mut *annotate, &mut *cache)?;
                 expression_ty.weak_normalize_in(definitions)?;
                 let expression_ty = if let Wrap(term, _) = expression_ty {
                     term
@@ -84,11 +89,11 @@ impl<T> AnalysisTerm<Option<T>> {
                 };
                 let mut body = body.clone();
                 body.substitute_top_in(&argument_annotation);
-                body.check_in(&reduced, definitions, cache)?;
+                body.check_in(&reduced, definitions, &mut *annotate, cache)?;
             }
             Put(term, _) => {
                 if let Wrap(ty, _) = reduced {
-                    term.check_in(&ty, definitions, cache)?;
+                    term.check_in(&ty, definitions, &mut *annotate, cache)?;
                 } else {
                     Err(AnalysisError::ExpectedWrap {
                         term: self.clone(),
@@ -96,8 +101,9 @@ impl<T> AnalysisTerm<Option<T>> {
                     })?;
                 }
             }
-            _ => {
-                let i = self.infer_in(definitions, &mut *cache)?;
+            term => {
+                annotate(term.annotation(), ty);
+                let i = self.infer_in(definitions, &mut *annotate, &mut *cache)?;
                 let inferred: term::Term<String> = i.clone().into();
                 let reduced: term::Term<String> = reduced.into();
                 if !inferred.equivalent(&reduced, &DefAdapter::new(&*definitions), cache)? {
