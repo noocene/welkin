@@ -8,7 +8,10 @@ use web_sys::{HtmlElement, KeyboardEvent};
 use crate::edit::{
     configure_contenteditable,
     dynamic::{
-        abst::{controls::Adt, implementation::Root},
+        abst::{
+            controls::{Adt, Invoke},
+            implementation::Root,
+        },
         Def,
     },
     focus_contenteditable, focus_element,
@@ -795,7 +798,8 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 let sender = RefCell::new(sender.clone());
                 move |_| {
                     let content = p.text_content().unwrap_or("".to_owned());
-                    let letter = content.chars().next();
+                    let mut chars = content.chars();
+                    let letter = chars.next();
 
                     if let Some(c) = letter {
                         let mutation = match c {
@@ -891,6 +895,10 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                             ))),
                             't' => Some(HoleMutation::Replace(add_ui(
                                 Term::Dynamic(Dynamic::new((), Root::new(Adt::new()))),
+                                &sender.borrow().clone(),
+                            ))),
+                            'i' => Some(HoleMutation::Replace(add_ui(
+                                Term::Dynamic(Dynamic::new((), Root::new(Invoke::new()))),
                                 &sender.borrow().clone(),
                             ))),
                             _ => None,

@@ -262,7 +262,10 @@ impl<T: Clone> From<Cursor<T>> for AnalysisTerm<Option<T>> {
             }
             Cursor::Hole(cursor) => AnalysisTerm::Hole(Some(cursor.annotation)),
 
-            Cursor::Dynamic(cursor) => todo!(),
+            Cursor::Dynamic(cursor) => {
+                // TODO proper expansion here
+                AnalysisTerm::Hole(None)
+            }
         }
     }
 }

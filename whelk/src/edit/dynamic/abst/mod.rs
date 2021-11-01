@@ -104,6 +104,10 @@ pub struct VStack;
 
 pub struct Wrapper;
 
+pub struct Hole;
+
+pub trait HasHole: HasField<Hole, Initializer = ()> {}
+
 pub trait HasField<T>: DynamicContext {
     type Field: Field<Handle = Self::Handle>;
     type Initializer;
