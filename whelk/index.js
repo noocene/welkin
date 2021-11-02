@@ -1,4 +1,8 @@
 async function entry() {
+    if (Error.stackTraceLimit) {
+        Error.stackTraceLimit = 50;
+    }
+
     let app = await
     import ('./pkg');
 

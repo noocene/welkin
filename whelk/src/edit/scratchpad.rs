@@ -30,7 +30,7 @@ pub struct Scratchpad {
 }
 
 impl Scratchpad {
-    pub fn new(term: Term, target_node: Node) -> Self {
+    pub fn new(term: Term, target_node: Node) -> (Sender<()>, Self) {
         let (mut sender, receiver) = channel(0);
         let data = Rc::new(RefCell::new(add_ui(term, &sender).into()));
 
@@ -76,115 +76,119 @@ impl Scratchpad {
             sender: sender.clone(),
             on_change: OnChangeWrapper::new(),
             focus_event_handler,
-            clipboard_event_handler: Closure::wrap(Box::new(move |e: JsValue| {
-                let copy = |f: Box<dyn Fn(String)>| {
-                    let data = &mut *data.borrow_mut();
+            clipboard_event_handler: Closure::wrap(Box::new({
+                let mut sender = sender.clone();
+                move |e: JsValue| {
+                    let copy = |f: Box<dyn Fn(String)>| {
+                        let data = &mut *data.borrow_mut();
 
-                    let term: Term<()> = Term::<UiSection>::from(data.clone()).clear_annotation();
+                        let term: Term<()> =
+                            Term::<UiSection>::from(data.clone()).clear_annotation();
 
-                    let waker = noop_waker();
-                    let mut context = Context::from_waker(&waker);
+                        let waker = noop_waker();
+                        let mut context = Context::from_waker(&waker);
 
-                    let mut fut = Box::pin(TermData::from(term.clear_annotation()).encode());
+                        let mut fut = Box::pin(TermData::from(term.clear_annotation()).encode());
 
-                    let data = loop {
-                        match fut.as_mut().poll(&mut context) {
-                            std::task::Poll::Ready(data) => break data,
-                            std::task::Poll::Pending => {}
+                        let data = loop {
+                            match fut.as_mut().poll(&mut context) {
+                                std::task::Poll::Ready(data) => break data,
+                                std::task::Poll::Pending => {}
+                            }
+                        };
+
+                        if let Ok(data) = data {
+                            f(data);
                         }
                     };
 
-                    if let Ok(data) = data {
-                        f(data);
-                    }
-                };
+                    if let Some(e) = e.dyn_ref::<KeyboardEvent>() {
+                        if e.ctrl_key() {
+                            if e.key() == "c" {
+                                copy(Box::new(|data| {
+                                    spawn_local(async move {
+                                        let navigator = web_sys::window().unwrap().navigator();
+                                        let clipboard = navigator.clipboard().unwrap();
+                                        JsFuture::from(clipboard.write_text(&data)).await.unwrap();
+                                    });
+                                }));
+                                e.prevent_default();
+                                e.stop_propagation();
+                            } else if e.key() == "x" {
+                                copy(Box::new(|data| {
+                                    spawn_local(async move {
+                                        let navigator = web_sys::window().unwrap().navigator();
+                                        let clipboard = navigator.clipboard().unwrap();
+                                        JsFuture::from(clipboard.write_text(&data)).await.unwrap();
+                                    });
+                                }));
+                                data.borrow().annotation().trigger_remove(&sender);
+                                e.prevent_default();
+                                e.stop_propagation();
+                            }
+                        }
 
-                if let Some(e) = e.dyn_ref::<KeyboardEvent>() {
-                    if e.ctrl_key() {
-                        if e.key() == "c" {
+                        return;
+                    }
+                    let e: ClipboardEvent = e.dyn_into().unwrap();
+                    let c_data = e.clipboard_data().unwrap();
+
+                    match e.type_().as_str() {
+                        "cut" => {
                             copy(Box::new(|data| {
-                                spawn_local(async move {
-                                    let navigator = web_sys::window().unwrap().navigator();
-                                    let clipboard = navigator.clipboard().unwrap();
-                                    JsFuture::from(clipboard.write_text(&data)).await.unwrap();
-                                });
-                            }));
-                            e.prevent_default();
-                            e.stop_propagation();
-                        } else if e.key() == "x" {
-                            copy(Box::new(|data| {
-                                spawn_local(async move {
-                                    let navigator = web_sys::window().unwrap().navigator();
-                                    let clipboard = navigator.clipboard().unwrap();
-                                    JsFuture::from(clipboard.write_text(&data)).await.unwrap();
-                                });
+                                c_data.set_data("text/plain", &data).unwrap();
                             }));
                             data.borrow().annotation().trigger_remove(&sender);
                             e.prevent_default();
-                            e.stop_propagation();
                         }
-                    }
-
-                    return;
-                }
-                let e: ClipboardEvent = e.dyn_into().unwrap();
-                let c_data = e.clipboard_data().unwrap();
-
-                match e.type_().as_str() {
-                    "cut" => {
-                        copy(Box::new(|data| {
-                            c_data.set_data("text/plain", &data).unwrap();
-                        }));
-                        data.borrow().annotation().trigger_remove(&sender);
-                        e.prevent_default();
-                    }
-                    "copy" => {
-                        copy(Box::new(|data| {
-                            c_data.set_data("text/plain", &data).unwrap();
-                        }));
-                        e.prevent_default();
-                    }
-                    "paste" => {
-                        let data = &mut *data.borrow_mut();
-
-                        if let Cursor::Hole(cursor) = data {
+                        "copy" => {
+                            copy(Box::new(|data| {
+                                c_data.set_data("text/plain", &data).unwrap();
+                            }));
                             e.prevent_default();
-                            if let Ok(data) = c_data.get_data("text/plain") {
-                                let waker = noop_waker();
-                                let mut context = Context::from_waker(&waker);
+                        }
+                        "paste" => {
+                            let data = &mut *data.borrow_mut();
 
-                                let mut fut = Box::pin(TermData::decode(data));
+                            if let Cursor::Hole(cursor) = data {
+                                e.prevent_default();
+                                if let Ok(data) = c_data.get_data("text/plain") {
+                                    let waker = noop_waker();
+                                    let mut context = Context::from_waker(&waker);
 
-                                let data = loop {
-                                    match fut.as_mut().poll(&mut context) {
-                                        std::task::Poll::Ready(data) => break data,
-                                        std::task::Poll::Pending => {}
-                                    }
-                                };
+                                    let mut fut = Box::pin(TermData::decode(data));
 
-                                if let Ok(Some(data)) = data {
-                                    match &mut cursor.annotation_mut().variant {
-                                        UiSectionVariance::Hole { p, mutations, .. } => {
-                                            p.remove();
-                                            mutations.borrow_mut().push(HoleMutation::Replace(
-                                                add_ui(data.into(), &sender),
-                                            ));
+                                    let data = loop {
+                                        match fut.as_mut().poll(&mut context) {
+                                            std::task::Poll::Ready(data) => break data,
+                                            std::task::Poll::Pending => {}
                                         }
-                                        _ => panic!(),
+                                    };
+
+                                    if let Ok(Some(data)) = data {
+                                        match &mut cursor.annotation_mut().variant {
+                                            UiSectionVariance::Hole { p, mutations, .. } => {
+                                                p.remove();
+                                                mutations.borrow_mut().push(HoleMutation::Replace(
+                                                    add_ui(data.into(), &sender),
+                                                ));
+                                            }
+                                            _ => panic!(),
+                                        }
+                                        let _ = sender.try_send(());
                                     }
-                                    let _ = sender.try_send(());
                                 }
                             }
                         }
+                        _ => panic!(),
                     }
-                    _ => panic!(),
                 }
             }) as Box<dyn FnMut(JsValue)>),
         };
 
         scratchpad.add_copy_listener();
 
-        scratchpad
+        (sender, scratchpad)
     }
 
     pub fn force_update(&mut self, data: Term) {

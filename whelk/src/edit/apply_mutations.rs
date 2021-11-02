@@ -476,8 +476,8 @@ pub fn apply_mutations(
 
             term.apply_mutations(
                 cursor.up,
-                match cursor.annotation.variant {
-                    UiSectionVariance::Dynamic(variance) => variance,
+                match &cursor.annotation.variant {
+                    UiSectionVariance::Dynamic(variance) => variance.clone(),
                     _ => panic!(),
                 },
                 focused,

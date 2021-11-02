@@ -102,8 +102,19 @@ impl<T> AnalysisTerm<Option<T>> {
                 }
             }
             term => {
-                annotate(term.annotation(), ty);
-                let i = self.infer_in(definitions, &mut *annotate, &mut *cache)?;
+                let i = if let AnalysisTerm::Hole(_) = self {
+                    annotate(term.annotation(), ty);
+                    ty.clone()
+                } else {
+                    let i = self.infer_in(definitions, &mut *annotate, &mut *cache)?;
+                    annotate(term.annotation(), &i);
+                    i
+                };
+
+                if !i.is_complete() || !ty.is_complete() {
+                    return Ok(());
+                }
+
                 let inferred: term::Term<String> = i.clone().into();
                 let reduced: term::Term<String> = reduced.into();
                 if !inferred.equivalent(&reduced, &DefAdapter::new(&*definitions), cache)? {

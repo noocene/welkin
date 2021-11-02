@@ -1,6 +1,8 @@
 mod check;
 mod infer;
 pub use infer::AnalysisError;
+mod cursor;
+mod is_complete;
 mod normalize;
 mod shift;
 mod substitute;
@@ -200,6 +202,78 @@ impl<T> AnalysisTerm<Option<T>> {
                 checked,
                 term: Box::new(term.clear_annotation()),
                 ty: Box::new(ty.clear_annotation()),
+            },
+        }
+    }
+}
+
+impl<T> AnalysisTerm<T> {
+    fn map_annotation<U, F: Fn(T) -> U>(self, call: &F) -> AnalysisTerm<U> {
+        match self {
+            AnalysisTerm::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => AnalysisTerm::Lambda {
+                erased,
+                name,
+                annotation: call(annotation),
+                body: Box::new(body.map_annotation(&*call)),
+            },
+            AnalysisTerm::Variable(idx, annotation) => {
+                AnalysisTerm::Variable(idx, call(annotation))
+            }
+            AnalysisTerm::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => AnalysisTerm::Application {
+                erased,
+                function: Box::new(function.map_annotation(&*call)),
+                argument: Box::new(argument.map_annotation(&*call)),
+                annotation: call(annotation),
+            },
+            AnalysisTerm::Put(term, annotation) => {
+                AnalysisTerm::Put(Box::new(term.map_annotation(&*call)), call(annotation))
+            }
+            AnalysisTerm::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => AnalysisTerm::Duplication {
+                binder,
+                expression: Box::new(expression.map_annotation(&*call)),
+                body: Box::new(body.map_annotation(&*call)),
+                annotation: call(annotation),
+            },
+            AnalysisTerm::Reference(r, annotation) => AnalysisTerm::Reference(r, call(annotation)),
+            AnalysisTerm::Universe(annotation) => AnalysisTerm::Universe(call(annotation)),
+            AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new(argument_type.map_annotation(&*call)),
+                return_type: Box::new(return_type.map_annotation(&*call)),
+                annotation: call(annotation),
+            },
+            AnalysisTerm::Wrap(term, annotation) => {
+                AnalysisTerm::Wrap(Box::new(term.map_annotation(&*call)), call(annotation))
+            }
+            AnalysisTerm::Hole(annotation) => AnalysisTerm::Hole(call(annotation)),
+            AnalysisTerm::Annotation { checked, term, ty } => AnalysisTerm::Annotation {
+                checked,
+                term: Box::new(term.map_annotation(&*call)),
+                ty: Box::new(ty.map_annotation(&*call)),
             },
         }
     }

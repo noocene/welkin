@@ -17,7 +17,7 @@ use edit::{
 };
 use evaluator::{Evaluator, Substitution};
 use futures::{
-    channel::mpsc::{channel, Receiver},
+    channel::mpsc::{channel, Receiver, Sender},
     stream, Stream, StreamExt,
 };
 use wasm_bindgen::{
@@ -29,6 +29,8 @@ use web_sys::{Element, KeyboardEvent, Node};
 use welkin::Terms;
 use welkin_binding::{FromAnalogue, FromWelkin, ToWelkin};
 use welkin_core::term::{DefinitionResult, MapCache, Term, TypedDefinitions};
+
+use crate::edit::{add_ui, mutations::HoleMutation, UiSectionVariance};
 
 mod bindings;
 mod edit;
@@ -193,7 +195,12 @@ fn push_paragraph(data: Block, container: &Element) {
                 .class_list()
                 .add_3("printed", "inference", "content")
                 .unwrap();
-            paragraph.set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
+            if data.is_complete() {
+                paragraph
+                    .set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
+            } else {
+                paragraph.set_text_content(Some("incomplete"));
+            }
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
         }
@@ -209,12 +216,21 @@ async fn add_scratchpad(
 ) -> Result<ScratchpadContainer, JsValue> {
     let call: Rc<RefCell<Box<dyn FnMut(JsValue)>>> = Rc::new(RefCell::new(Box::new(|_| {})));
 
-    let mut pad = make_scratchpad(term, {
-        let call = call.clone();
-        move |e| {
-            (&mut *call.borrow_mut())(e);
-        }
-    })
+    let (sender, mut pad) = make_scratchpad(
+        term,
+        {
+            let call = call.clone();
+            move |e| {
+                (&mut *call.borrow_mut())(e);
+            }
+        },
+        {
+            let pads = pads.clone();
+            move |_| {
+                save(pads.clone());
+            }
+        },
+    )
     .await?;
 
     let output = pad.output.clone();
@@ -227,15 +243,9 @@ async fn add_scratchpad(
         let wrapper = wrapper.clone();
         let pads = pads.clone();
         let terms = terms.clone();
+        let data = pad.data.clone();
         let defs = defs.clone();
         move |e| {
-            if e.dyn_ref::<KeyboardEvent>().is_none() {
-                let pads = pads.clone();
-                spawn_local(async move {
-                    save(pads);
-                });
-                return;
-            }
             let e: KeyboardEvent = e.dyn_into().unwrap();
             let code = e.code();
             match code.as_str() {
@@ -263,6 +273,75 @@ async fn add_scratchpad(
                         pads.borrow_mut().insert(idx + 1, pad);
                     });
                 }
+                "Period" => {
+                    let defs = DefWrapper(defs.clone(), terms.clone());
+
+                    CACHE.with(|cache| {
+                        let ty = data.borrow().infer(
+                            AnalysisTerm::Reference("Whelk".into(), ()),
+                            &defs,
+                            &mut *cache.borrow_mut(),
+                        );
+
+                        let mut applications = vec![];
+
+                        if let Some(ty) = ty {
+                            let mut ty = ty;
+
+                            while let AnalysisTerm::Function {
+                                return_type,
+                                erased,
+                                ..
+                            } = ty
+                            {
+                                applications.push(erased);
+                                ty = *return_type;
+                            }
+                        }
+
+                        if applications.len() == 0 {
+                            return;
+                        }
+
+                        let term: zipper::Term<_> = data.borrow().clone().into();
+                        let mut term = term.clear_annotation();
+
+                        for application in applications {
+                            term = zipper::Term::Application {
+                                erased: application,
+                                annotation: (),
+                                argument: Box::new(zipper::Term::Hole(())),
+                                function: Box::new(term),
+                            };
+                        }
+
+                        data.borrow().annotation().trigger_remove(&sender);
+
+                        spawn_local({
+                            let data = data.clone();
+                            let mut sender = sender.clone();
+                            async move {
+                                if let Cursor::Hole(cursor) = &*data.borrow() {
+                                    let annotation = cursor.annotation();
+                                    if let UiSection {
+                                        variant: UiSectionVariance::Hole { mutations, p, .. },
+                                        ..
+                                    } = annotation
+                                    {
+                                        p.remove();
+                                        mutations
+                                            .borrow_mut()
+                                            .push(HoleMutation::Replace(add_ui(term, &sender)));
+                                        let _ = sender.try_send(());
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    e.prevent_default();
+                    e.stop_propagation();
+                }
                 "Delete" | "Backspace" => {
                     if !e
                         .target()
@@ -287,7 +366,6 @@ async fn add_scratchpad(
                         if pads.borrow().len() > 1 {
                             let pad = pads.borrow_mut().remove(idx);
                             pad.wrapper.remove();
-                            Box::leak(Box::new(pad));
                         }
                     });
                 }
@@ -325,7 +403,7 @@ async fn add_scratchpad(
                         let defs = DefWrapper(defs.clone(), terms.clone());
                         let cache = &mut *cache.borrow_mut();
                         let data = d;
-                        match term.check_in(
+                        let check = term.check_in(
                             &AnalysisTerm::Reference("Whelk".into(), None),
                             &defs,
                             &mut |annotation, ty| {
@@ -335,8 +413,16 @@ async fn add_scratchpad(
                                 }
                             },
                             cache,
-                        ) {
-                            Ok(()) => {
+                        );
+                        if let Cursor::Hole(cursor) = &*data.borrow() {
+                            let annotation = &cursor.annotation().annotation;
+
+                            if let Some(ty) = &*annotation.borrow() {
+                                push_paragraph(Block::Term { data: ty.clone() }, &output);
+                            }
+                        }
+                        match check {
+                            Ok(()) if term.is_complete() => {
                                 status
                                     .class_list()
                                     .add_3("scratchpad", "status", "def-ok")
@@ -374,35 +460,26 @@ async fn add_scratchpad(
                                     return;
                                 }
                             }
+                            Err(AnalysisError::Impossible(AnalysisTerm::Hole(_))) => {
+                                status.class_list().add_2("scratchpad", "status").unwrap();
+                            }
                             Err(e) => {
                                 output.set_inner_html("");
 
-                                if let AnalysisError::Impossible(AnalysisTerm::Hole(_)) = e {
-                                    status.class_list().add_2("scratchpad", "status").unwrap();
+                                status
+                                    .class_list()
+                                    .add_3("scratchpad", "status", "def-err")
+                                    .unwrap();
 
-                                    if let Cursor::Hole(cursor) = &*data.borrow() {
-                                        let annotation = &cursor.annotation().annotation;
-
-                                        if let Some(ty) = &*annotation.borrow() {
-                                            push_paragraph(
-                                                Block::Term { data: ty.clone() },
-                                                &output,
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    status
-                                        .class_list()
-                                        .add_3("scratchpad", "status", "def-err")
-                                        .unwrap();
-
-                                    push_paragraph(
-                                        Block::Error {
-                                            data: format!("{:?}", e),
-                                        },
-                                        &output,
-                                    );
-                                }
+                                push_paragraph(
+                                    Block::Error {
+                                        data: format!("{:?}", e),
+                                    },
+                                    &output,
+                                );
+                            }
+                            _ => {
+                                status.class_list().add_2("scratchpad", "status").unwrap();
                             }
                         }
                     });
@@ -521,7 +598,8 @@ impl ScratchpadContainer {
 async fn make_scratchpad(
     term: zipper::Term,
     mut listener: impl FnMut(JsValue) + 'static,
-) -> Result<ScratchpadContainer, JsValue> {
+    mut focus_listener: impl FnMut(JsValue) + 'static,
+) -> Result<(Sender<()>, ScratchpadContainer), JsValue> {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
 
@@ -545,7 +623,7 @@ async fn make_scratchpad(
     inner.append_child(&status)?;
     wrapper.append_child(&output)?;
 
-    let mut pad = Scratchpad::new(term, content.into());
+    let (s, mut pad) = Scratchpad::new(term, content.into());
 
     pad.render()?;
 
@@ -570,19 +648,25 @@ async fn make_scratchpad(
     let keydown_listener =
         Closure::wrap(Box::new(move |e: JsValue| listener(e)) as Box<dyn FnMut(JsValue)>);
 
+    let focusout_listener =
+        Closure::wrap(Box::new(move |e: JsValue| focus_listener(e)) as Box<dyn FnMut(JsValue)>);
+
     wrapper
         .add_event_listener_with_callback("keydown", keydown_listener.as_ref().unchecked_ref())?;
     wrapper
-        .add_event_listener_with_callback("focusout", keydown_listener.as_ref().unchecked_ref())?;
+        .add_event_listener_with_callback("focusout", focusout_listener.as_ref().unchecked_ref())?;
 
-    Ok(ScratchpadContainer {
-        wrapper,
-        data,
-        output,
-        status,
-        _closures: vec![keydown_listener],
-        receiver: Some(receiver),
-    })
+    Ok((
+        s,
+        ScratchpadContainer {
+            wrapper,
+            data,
+            output,
+            status,
+            _closures: vec![keydown_listener, focusout_listener],
+            receiver: Some(receiver),
+        },
+    ))
 }
 
 #[async_recursion(?Send)]
