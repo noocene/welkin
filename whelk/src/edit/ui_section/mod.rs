@@ -6,6 +6,7 @@ use futures::channel::mpsc::Sender;
 pub use variance::*;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Element, Node};
+mod error;
 
 use super::{
     focus_contenteditable, focus_element,
@@ -334,5 +335,30 @@ impl UiSection {
                 _ => panic!(),
             },
         })
+    }
+
+    pub fn root_el(&self) -> Element {
+        match &self.variant {
+            UiSectionVariance::Lambda { span, .. } => span.clone(),
+            UiSectionVariance::Application { container, .. } => container.clone(),
+            UiSectionVariance::Reference { p, .. } => p.clone(),
+            UiSectionVariance::Hole { p, .. } => p.clone(),
+            UiSectionVariance::Universe { p, .. } => p.clone(),
+            UiSectionVariance::Wrap { container, .. } => container.clone(),
+            UiSectionVariance::Put { container, .. } => container.clone(),
+            UiSectionVariance::Duplication { span, .. } => span.clone(),
+            UiSectionVariance::Function {
+                self_span,
+                span,
+                self_focused,
+                ..
+            } => if *self_focused.borrow() {
+                self_span
+            } else {
+                span
+            }
+            .clone(),
+            UiSectionVariance::Dynamic(variance) => variance.focused_el().into_owned(),
+        }
     }
 }

@@ -50,10 +50,19 @@ pub fn entry(terms: Vec<u8>) -> Result<(), JsValue> {
 
 #[derive(Debug)]
 enum Block {
-    Info { header: String, content: String },
-    Printed { data: String },
-    Error { data: String },
-    Term { data: AnalysisTerm<()> },
+    Info {
+        header: String,
+        content: String,
+    },
+    Printed {
+        data: String,
+    },
+    Error {
+        data: AnalysisError<Option<UiSection>>,
+    },
+    Term {
+        data: AnalysisTerm<()>,
+    },
 }
 
 async fn main(terms: Vec<u8>) -> Result<(), JsValue> {
@@ -183,7 +192,48 @@ fn push_paragraph(data: Block, container: &Element) {
                 .class_list()
                 .add_3("printed", "error", "content")
                 .unwrap();
-            paragraph.set_text_content(Some(&data));
+
+            match data {
+                AnalysisError::TypeError {
+                    expected,
+                    got,
+                    annotation,
+                } if annotation.is_some() => {
+                    let annotation = annotation.unwrap();
+                    let expected = if expected.is_complete() {
+                        format!("{:?}", welkin_core::term::Term::from(expected))
+                    } else {
+                        format!("{:?}", expected)
+                    };
+                    let got = if got.is_complete() {
+                        format!("{:?}", welkin_core::term::Term::from(got))
+                    } else {
+                        format!("{:?}", got)
+                    };
+                    paragraph.set_text_content(Some(&format!(
+                        "type error:\nexpected\n\t{}\ngot\n\t{}",
+                        expected, got
+                    )));
+                    annotation.show_error();
+                }
+                AnalysisError::ErasureMismatch {
+                    lambda,
+                    ty,
+                    annotation,
+                } if annotation.is_some() => {
+                    let annotation = annotation.unwrap();
+                    paragraph.set_text_content(Some("erasure mismatch"));
+                    annotation.show_error();
+                }
+                AnalysisError::UnboundReference { annotation, .. } if annotation.is_some() => {
+                    let annotation = annotation.unwrap();
+                    paragraph.set_text_content(Some("unbound reference"));
+                    annotation.show_error();
+                }
+                _ => {
+                    paragraph.set_text_content(Some(&format!("{:?}", data)));
+                }
+            }
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
         }
@@ -199,7 +249,7 @@ fn push_paragraph(data: Block, container: &Element) {
                 paragraph
                     .set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
             } else {
-                paragraph.set_text_content(Some("incomplete"));
+                paragraph.set_text_content(Some(&format!("{:?}", data)));
             }
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
@@ -414,6 +464,15 @@ async fn add_scratchpad(
                             },
                             cache,
                         );
+                        let nodes = wrapper.query_selector_all(".error-span").unwrap();
+                        for node in 0..nodes.length() {
+                            let node = nodes.get(node).unwrap();
+                            node.dyn_ref::<Element>()
+                                .unwrap()
+                                .class_list()
+                                .remove_1("error-span")
+                                .unwrap();
+                        }
                         if let Cursor::Hole(cursor) = &*data.borrow() {
                             let annotation = &cursor.annotation().annotation;
 
@@ -471,12 +530,7 @@ async fn add_scratchpad(
                                     .add_3("scratchpad", "status", "def-err")
                                     .unwrap();
 
-                                push_paragraph(
-                                    Block::Error {
-                                        data: format!("{:?}", e),
-                                    },
-                                    &output,
-                                );
+                                push_paragraph(Block::Error { data: e }, &output);
                             }
                             _ => {
                                 status.class_list().add_2("scratchpad", "status").unwrap();

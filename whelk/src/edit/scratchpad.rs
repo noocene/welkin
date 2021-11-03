@@ -223,28 +223,7 @@ impl Scratchpad {
         let annotation = self.data.borrow();
         let annotation = annotation.annotation();
 
-        match &annotation.variant {
-            UiSectionVariance::Lambda { span, .. } => span.clone(),
-            UiSectionVariance::Application { container, .. } => container.clone(),
-            UiSectionVariance::Reference { p, .. } => p.clone(),
-            UiSectionVariance::Hole { p, .. } => p.clone(),
-            UiSectionVariance::Universe { p, .. } => p.clone(),
-            UiSectionVariance::Wrap { container, .. } => container.clone(),
-            UiSectionVariance::Put { container, .. } => container.clone(),
-            UiSectionVariance::Duplication { span, .. } => span.clone(),
-            UiSectionVariance::Function {
-                self_span,
-                span,
-                self_focused,
-                ..
-            } => if *self_focused.borrow() {
-                self_span
-            } else {
-                span
-            }
-            .clone(),
-            UiSectionVariance::Dynamic(variance) => variance.focused_el().into_owned(),
-        }
+        annotation.root_el()
     }
 
     fn add_copy_listener(&self) {

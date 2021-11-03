@@ -13,12 +13,17 @@ pub enum AnalysisError<T> {
     TypeError {
         expected: AnalysisTerm<T>,
         got: AnalysisTerm<T>,
+        annotation: T,
     },
     ErasureMismatch {
         lambda: AnalysisTerm<T>,
         ty: AnalysisTerm<T>,
+        annotation: T,
     },
-    UnboundReference(String),
+    UnboundReference {
+        name: String,
+        annotation: T,
+    },
     NonFunctionApplication(AnalysisTerm<T>),
     UnboxedDuplication {
         term: AnalysisTerm<T>,
@@ -58,7 +63,7 @@ impl<T> AnalysisTerm<Option<T>> {
         cache: &mut impl EqualityCache,
     ) -> Result<AnalysisTerm<Option<T>>, AnalysisError<Option<T>>>
     where
-        T: Clone + std::fmt::Debug,
+        T: Clone,
     {
         use AnalysisTerm::*;
 
@@ -74,7 +79,10 @@ impl<T> AnalysisTerm<Option<T>> {
                 if let Some(dr) = definitions.get_typed(name) {
                     dr.as_ref().0.clone()
                 } else {
-                    Err(AnalysisError::UnboundReference(name.clone()))?
+                    Err(AnalysisError::UnboundReference {
+                        name: name.clone(),
+                        annotation: self.annotation().cloned(),
+                    })?
                 }
             }
             Function {
@@ -123,6 +131,7 @@ impl<T> AnalysisTerm<Option<T>> {
                         Err(AnalysisError::ErasureMismatch {
                             lambda: self.clone(),
                             ty: function_type.clone(),
+                            annotation: self.annotation().cloned(),
                         })?;
                     }
                     let self_annotation = AnalysisTerm::Annotation {

@@ -306,6 +306,7 @@
         
         .printed.content {
             margin-top: 8px;
+            white-space: pre-wrap;
         }
         
         .printed.content:not(.error):not(.inference)::before {
@@ -346,6 +347,10 @@
         .put-inner:hover::before,
         .function:hover::before {
             outline: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        
+        .error-span {
+            outline: 1px solid #CC6666;
         }
         
         [contenteditable]:focus,

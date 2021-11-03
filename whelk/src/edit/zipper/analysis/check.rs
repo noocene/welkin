@@ -16,7 +16,7 @@ impl<T> AnalysisTerm<Option<T>> {
         cache: &mut impl EqualityCache,
     ) -> Result<(), AnalysisError<Option<T>>>
     where
-        T: Clone + std::fmt::Debug,
+        T: Clone,
     {
         use AnalysisTerm::*;
 
@@ -36,6 +36,7 @@ impl<T> AnalysisTerm<Option<T>> {
                         Err(AnalysisError::ErasureMismatch {
                             lambda: self.clone(),
                             ty: ty.clone(),
+                            annotation: self.annotation().cloned(),
                         })?;
                     }
                     let self_annotation = Annotation {
@@ -120,6 +121,7 @@ impl<T> AnalysisTerm<Option<T>> {
                 if !inferred.equivalent(&reduced, &DefAdapter::new(&*definitions), cache)? {
                     Err(AnalysisError::TypeError {
                         expected: ty.clone(),
+                        annotation: self.annotation().cloned(),
                         got: i,
                     })?;
                 }
