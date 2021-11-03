@@ -52,3 +52,4 @@ core-futures-io = { git = "https://github.com/noocene/core-futures-io", features
 downcast-rs = "1.2.0"
 uuid = { version = "0.8.2", features = ["v4", "wasm-bindgen"] }
 js-sys = "0.3.55"
+bumpalo = "3.8.0"

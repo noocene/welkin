@@ -1,6 +1,5 @@
-use welkin_core::term::{self, EqualityCache};
-
-use crate::edit::zipper::analysis::DefAdapter;
+use std::fmt::Debug;
+use welkin_core::term::EqualityCache;
 
 use super::{infer::AnalysisError, AnalysisTerm, TypedDefinitions};
 
@@ -8,15 +7,17 @@ impl<T> AnalysisTerm<Option<T>> {
     pub fn check_in<
         U: TypedDefinitions<Option<T>>,
         F: FnMut(Option<&T>, &AnalysisTerm<Option<T>>),
+        G: FnMut(Option<&T>, &AnalysisTerm<Option<T>>),
     >(
         &self,
         ty: &AnalysisTerm<Option<T>>,
         definitions: &U,
         annotate: &mut F,
+        fill_hole: &mut G,
         cache: &mut impl EqualityCache,
     ) -> Result<(), AnalysisError<Option<T>>>
     where
-        T: Clone,
+        T: Clone + Debug,
     {
         use AnalysisTerm::*;
 
@@ -61,7 +62,13 @@ impl<T> AnalysisTerm<Option<T>> {
 
                     let mut body = body.clone();
                     body.substitute_top_in_unshifted(&argument_annotation);
-                    body.check_in(&*return_type, definitions, &mut *annotate, cache)?;
+                    body.check_in(
+                        &*return_type,
+                        definitions,
+                        &mut *annotate,
+                        &mut *fill_hole,
+                        cache,
+                    )?;
                 } else {
                     Err(AnalysisError::NonFunctionLambda {
                         term: self.clone(),
@@ -72,8 +79,12 @@ impl<T> AnalysisTerm<Option<T>> {
             Duplication {
                 expression, body, ..
             } => {
-                let mut expression_ty =
-                    expression.infer_in(definitions, &mut *annotate, &mut *cache)?;
+                let mut expression_ty = expression.infer_in(
+                    definitions,
+                    &mut *annotate,
+                    &mut *fill_hole,
+                    &mut *cache,
+                )?;
                 expression_ty.weak_normalize_in(definitions)?;
                 let expression_ty = if let Wrap(term, _) = expression_ty {
                     term
@@ -90,11 +101,17 @@ impl<T> AnalysisTerm<Option<T>> {
                 };
                 let mut body = body.clone();
                 body.substitute_top_in(&argument_annotation);
-                body.check_in(&reduced, definitions, &mut *annotate, cache)?;
+                body.check_in(
+                    &reduced,
+                    definitions,
+                    &mut *annotate,
+                    &mut *fill_hole,
+                    cache,
+                )?;
             }
             Put(term, _) => {
                 if let Wrap(ty, _) = reduced {
-                    term.check_in(&ty, definitions, &mut *annotate, cache)?;
+                    term.check_in(&ty, definitions, &mut *annotate, &mut *fill_hole, cache)?;
                 } else {
                     Err(AnalysisError::ExpectedWrap {
                         term: self.clone(),
@@ -103,26 +120,21 @@ impl<T> AnalysisTerm<Option<T>> {
                 }
             }
             term => {
-                let i = if let AnalysisTerm::Hole(_) = self {
+                let inferred = if let AnalysisTerm::Hole(_) = self {
                     annotate(term.annotation(), ty);
                     ty.clone()
                 } else {
-                    let i = self.infer_in(definitions, &mut *annotate, &mut *cache)?;
+                    let i =
+                        self.infer_in(definitions, &mut *annotate, &mut *fill_hole, &mut *cache)?;
                     annotate(term.annotation(), &i);
                     i
                 };
 
-                if !i.is_complete() || !ty.is_complete() {
-                    return Ok(());
-                }
-
-                let inferred: term::Term<String> = i.clone().into();
-                let reduced: term::Term<String> = reduced.into();
-                if !inferred.equivalent(&reduced, &DefAdapter::new(&*definitions), cache)? {
+                if !inferred.equivalent_in(&reduced, definitions, &mut *fill_hole, cache)? {
                     Err(AnalysisError::TypeError {
                         expected: ty.clone(),
                         annotation: self.annotation().cloned(),
-                        got: i,
+                        got: inferred,
                     })?;
                 }
             }

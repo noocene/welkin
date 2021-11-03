@@ -15,7 +15,7 @@ use crate::edit::{
         Def,
     },
     focus_contenteditable, focus_element,
-    zipper::{dynamic::Dynamic, Term},
+    zipper::{analysis::AnalysisTerm, dynamic::Dynamic, Term},
     UiSectionVariance,
 };
 
@@ -785,6 +785,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
     match term {
         Term::Hole(()) => {
             let mutations = Rc::new(RefCell::new(vec![]));
+            let filled: Rc<RefCell<Option<AnalysisTerm<()>>>> = Rc::new(RefCell::new(None));
 
             let p = document.create_element("p").unwrap();
 
@@ -796,6 +797,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 let p = p.clone();
                 let mutations = mutations.clone();
                 let sender = RefCell::new(sender.clone());
+                let filled = filled.clone();
                 move |_| {
                     let content = p.text_content().unwrap_or("".to_owned());
                     let mut chars = content.chars();
@@ -901,6 +903,24 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                 Term::Dynamic(Dynamic::new((), Root::new(Invoke::new()))),
                                 &sender.borrow().clone(),
                             ))),
+                            '?' => {
+                                let a = if let Some(term) = filled.borrow_mut().take() {
+                                    if term.no_variables() {
+                                        Some(HoleMutation::Replace(add_ui(
+                                            term.into(),
+                                            &sender.borrow().clone(),
+                                        )))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+                                if a.is_none() {
+                                    p.set_text_content(Some(""));
+                                }
+                                a
+                            }
                             _ => None,
                         };
                         if let Some(m) = mutation {
@@ -977,6 +997,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                 .unwrap();
 
             UiSection::new(UiSectionVariance::Hole {
+                filled,
                 mutations,
                 p,
                 closures: Rc::new(vec![closure, focus_closure, blur_closure, keydown_closure]),

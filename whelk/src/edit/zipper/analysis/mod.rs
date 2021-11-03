@@ -2,6 +2,7 @@ mod check;
 mod infer;
 pub use infer::AnalysisError;
 mod cursor;
+mod equivalent;
 mod is_complete;
 mod normalize;
 mod shift;
@@ -12,7 +13,7 @@ use std::marker::PhantomData;
 use derivative::Derivative;
 use welkin_core::term::{self, Index};
 
-use super::Cursor;
+use super::{Cursor, Term};
 
 pub enum DefinitionResult<'a, T> {
     Borrowed(&'a T),
@@ -117,6 +118,70 @@ pub enum AnalysisTerm<T> {
         term: Box<AnalysisTerm<T>>,
         ty: Box<AnalysisTerm<T>>,
     },
+}
+
+impl<T> From<AnalysisTerm<T>> for Term<T> {
+    fn from(term: AnalysisTerm<T>) -> Self {
+        match term {
+            AnalysisTerm::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => Term::Lambda {
+                erased,
+                name,
+                body: Box::new((*body).into()),
+                annotation,
+            },
+            AnalysisTerm::Variable(_, _) => todo!(),
+            AnalysisTerm::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => Term::Application {
+                erased,
+                function: Box::new((*function).into()),
+                argument: Box::new((*argument).into()),
+                annotation,
+            },
+            AnalysisTerm::Put(term, annotation) => Term::Put(Box::new((*term).into()), annotation),
+            AnalysisTerm::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => Term::Duplication {
+                binder,
+                expression: Box::new((*expression).into()),
+                body: Box::new((*body).into()),
+                annotation,
+            },
+            AnalysisTerm::Reference(r, annotation) => Term::Reference(r, annotation),
+            AnalysisTerm::Universe(annotation) => Term::Universe(annotation),
+            AnalysisTerm::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type: Box::new((*argument_type).into()),
+                return_type: Box::new((*return_type).into()),
+                annotation,
+            },
+            AnalysisTerm::Wrap(term, annotation) => {
+                Term::Wrap(Box::new((*term).into()), annotation)
+            }
+            AnalysisTerm::Hole(annotation) => Term::Hole(annotation),
+            AnalysisTerm::Annotation { checked, term, ty } => (*term).into(),
+        }
+    }
 }
 
 impl<T> AnalysisTerm<Option<T>> {

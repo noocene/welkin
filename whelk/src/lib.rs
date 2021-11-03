@@ -61,6 +61,7 @@ enum Block {
         data: AnalysisError<Option<UiSection>>,
     },
     Term {
+        prefix: String,
         data: AnalysisTerm<()>,
     },
 }
@@ -237,7 +238,7 @@ fn push_paragraph(data: Block, container: &Element) {
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
         }
-        Block::Term { data } => {
+        Block::Term { data, prefix } => {
             let wrapper = document.create_element("div").unwrap();
             wrapper.class_list().add_2("printed", "wrapper").unwrap();
             let paragraph = document.create_element("p").unwrap();
@@ -245,6 +246,7 @@ fn push_paragraph(data: Block, container: &Element) {
                 .class_list()
                 .add_3("printed", "inference", "content")
                 .unwrap();
+            paragraph.set_attribute("data-prefix", &prefix).unwrap();
             if data.is_complete() {
                 paragraph
                     .set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
@@ -255,7 +257,6 @@ fn push_paragraph(data: Block, container: &Element) {
             container.append_child(&wrapper).unwrap();
         }
     }
-    window.scroll_to_with_x_and_y(0., body.scroll_height() as f64);
 }
 
 async fn add_scratchpad(
@@ -462,6 +463,16 @@ async fn add_scratchpad(
                                     *annotation.borrow_mut() = Some(ty.clone().clear_annotation());
                                 }
                             },
+                            &mut |annotation, ty| {
+                                if let Some(annotation) = annotation {
+                                    if let UiSectionVariance::Hole {
+                                        filled, mutations, ..
+                                    } = &annotation.variant
+                                    {
+                                        *filled.borrow_mut() = Some(ty.clone().clear_annotation());
+                                    }
+                                }
+                            },
                             cache,
                         );
                         let nodes = wrapper.query_selector_all(".error-span").unwrap();
@@ -474,10 +485,32 @@ async fn add_scratchpad(
                                 .unwrap();
                         }
                         if let Cursor::Hole(cursor) = &*data.borrow() {
-                            let annotation = &cursor.annotation().annotation;
+                            let annotation = cursor.annotation();
+                            let mut f = false;
+                            if let UiSectionVariance::Hole { filled, .. } = &annotation.variant {
+                                if let Some(term) = &*filled.borrow() {
+                                    f = true;
+                                    push_paragraph(
+                                        Block::Term {
+                                            prefix: "filled".into(),
+                                            data: term.clone(),
+                                        },
+                                        &output,
+                                    );
+                                }
+                            }
+                            if !f {
+                                let annotation = &annotation.annotation;
 
-                            if let Some(ty) = &*annotation.borrow() {
-                                push_paragraph(Block::Term { data: ty.clone() }, &output);
+                                if let Some(ty) = &*annotation.borrow() {
+                                    push_paragraph(
+                                        Block::Term {
+                                            prefix: "goal".into(),
+                                            data: ty.clone(),
+                                        },
+                                        &output,
+                                    );
+                                }
                             }
                         }
                         match check {

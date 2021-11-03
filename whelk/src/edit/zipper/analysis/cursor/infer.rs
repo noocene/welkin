@@ -38,6 +38,7 @@ impl Cursor<UiSection> {
                     *annotation.borrow_mut() = Some(ty.clone().clear_annotation());
                 }
             },
+            &mut |_, _| {},
             cache,
         );
 

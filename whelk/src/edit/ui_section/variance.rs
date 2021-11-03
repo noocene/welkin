@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use wasm_bindgen::{prelude::Closure, JsValue};
 use web_sys::{Element, Node};
 
-use crate::edit::DynamicVariance;
+use crate::edit::{zipper::analysis::AnalysisTerm, DynamicVariance};
 
 use super::mutations::*;
 
@@ -36,6 +36,7 @@ pub enum UiSectionVariance {
     },
     Hole {
         p: Element,
+        filled: Rc<RefCell<Option<AnalysisTerm<()>>>>,
         mutations: Rc<RefCell<Vec<HoleMutation>>>,
         closures: Rc<Vec<Closure<dyn FnMut(JsValue)>>>,
     },
