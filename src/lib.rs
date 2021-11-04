@@ -21,7 +21,7 @@ pub mod definitions;
 
 pub mod compiler;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Terms {
     pub data: Vec<(AbsolutePath, Term<AbsolutePath>, Term<AbsolutePath>)>,
 }

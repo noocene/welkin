@@ -1,8 +1,10 @@
 use std::mem::replace;
 
+use serde::{Deserialize, Serialize};
+
 use super::{AnalysisTerm, Definitions};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum NormalizationError {
     InvalidDuplication,
     InvalidApplication,

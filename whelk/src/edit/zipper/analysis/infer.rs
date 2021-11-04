@@ -1,12 +1,12 @@
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use welkin_core::term::{self, EqualityCache};
+use welkin_core::term::EqualityCache;
 
 use super::{normalize::NormalizationError, AnalysisTerm, TypedDefinitions};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum AnalysisError<T> {
     NormalizationError(NormalizationError),
-    CoreNormalizationError(term::NormalizationError),
     NonFunctionLambda {
         term: AnalysisTerm<T>,
         ty: AnalysisTerm<T>,
@@ -41,15 +41,63 @@ pub enum AnalysisError<T> {
     },
 }
 
-impl<T> From<NormalizationError> for AnalysisError<T> {
-    fn from(e: NormalizationError) -> Self {
-        AnalysisError::NormalizationError(e)
+impl<T> AnalysisError<T> {
+    pub fn map_annotation<U, F: FnMut(T) -> U>(self, call: &mut F) -> AnalysisError<U> {
+        match self {
+            AnalysisError::NormalizationError(e) => AnalysisError::NormalizationError(e),
+            AnalysisError::NonFunctionLambda { term, ty } => AnalysisError::NonFunctionLambda {
+                term: term.map_annotation(&mut *call),
+                ty: ty.map_annotation(&mut *call),
+            },
+            AnalysisError::TypeError {
+                expected,
+                got,
+                annotation,
+            } => AnalysisError::TypeError {
+                expected: expected.map_annotation(&mut *call),
+                got: got.map_annotation(&mut *call),
+                annotation: call(annotation),
+            },
+            AnalysisError::ErasureMismatch {
+                lambda,
+                ty,
+                annotation,
+            } => AnalysisError::ErasureMismatch {
+                lambda: lambda.map_annotation(&mut *call),
+                ty: ty.map_annotation(&mut *call),
+                annotation: call(annotation),
+            },
+            AnalysisError::UnboundReference { name, annotation } => {
+                AnalysisError::UnboundReference {
+                    name,
+                    annotation: call(annotation),
+                }
+            }
+            AnalysisError::NonFunctionApplication(ty) => {
+                AnalysisError::NonFunctionApplication(ty.map_annotation(&mut *call))
+            }
+            AnalysisError::UnboxedDuplication { term, ty } => AnalysisError::UnboxedDuplication {
+                term: term.map_annotation(&mut *call),
+                ty: ty.map_annotation(&mut *call),
+            },
+            AnalysisError::Impossible(term) => {
+                AnalysisError::Impossible(term.map_annotation(&mut *call))
+            }
+            AnalysisError::ExpectedWrap { term, ty } => AnalysisError::ExpectedWrap {
+                term: term.map_annotation(&mut *call),
+                ty: ty.map_annotation(&mut *call),
+            },
+            AnalysisError::InvalidWrap { wrap, got } => AnalysisError::InvalidWrap {
+                wrap: wrap.map_annotation(&mut *call),
+                got: got.map_annotation(&mut *call),
+            },
+        }
     }
 }
 
-impl<T> From<term::NormalizationError> for AnalysisError<T> {
-    fn from(e: term::NormalizationError) -> Self {
-        AnalysisError::CoreNormalizationError(e)
+impl<T> From<NormalizationError> for AnalysisError<T> {
+    fn from(e: NormalizationError) -> Self {
+        AnalysisError::NormalizationError(e)
     }
 }
 

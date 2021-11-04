@@ -40,16 +40,18 @@ web-sys = { version = "0.3.51", features = [
     "Event",
     "UiEvent",
     "EventTarget",
-    "Storage"
+    "Storage",
+    "Worker",
+    "Performance",
+    "DedicatedWorkerGlobalScope"
   ] }
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
 welkin = { path = "../" }
 welkin-binding = { path = "../binding" }
-fluvio-wasm-timer = "0.2.5"
 base91 = "0.1.0"
 mincodec = { git = "https://github.com/noocene/mincodec" }
 core-futures-io = { git = "https://github.com/noocene/core-futures-io", features = ["futures"] }
 downcast-rs = "1.2.0"
-uuid = { version = "0.8.2", features = ["v4", "wasm-bindgen"] }
+uuid = { version = "0.8.2", features = ["v4", "serde", "wasm-bindgen"] }
 js-sys = "0.3.55"
 bumpalo = "3.8.0"

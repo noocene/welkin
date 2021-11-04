@@ -17,35 +17,48 @@ use edit::{
 };
 use evaluator::{Evaluator, Substitution};
 use futures::{
-    channel::mpsc::{channel, Receiver, Sender},
+    channel::{
+        mpsc::{channel, Receiver, Sender},
+        oneshot,
+    },
     stream, Stream, StreamExt,
 };
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::{
     prelude::{wasm_bindgen, Closure},
     JsCast, JsValue,
 };
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{Element, KeyboardEvent, Node};
+use web_sys::{Element, KeyboardEvent, MessageEvent, Node, Worker};
 use welkin::Terms;
 use welkin_binding::{FromAnalogue, FromWelkin, ToWelkin};
 use welkin_core::term::{DefinitionResult, MapCache, Term, TypedDefinitions};
 
-use crate::edit::{add_ui, mutations::HoleMutation, UiSectionVariance};
+use crate::{
+    edit::{add_ui, mutations::HoleMutation, UiSectionVariance},
+    worker::WorkerWrapper,
+};
 
 mod bindings;
 mod edit;
 mod evaluator;
+mod worker;
 
 thread_local! {
     pub static CACHE: RefCell<MapCache> = RefCell::new(MapCache::new());
 }
 
 #[wasm_bindgen]
-pub fn entry(terms: Vec<u8>) -> Result<(), JsValue> {
+pub fn entry(terms: Vec<u8>, worker: Worker) -> Result<(), JsValue> {
     spawn_local(async move {
-        main(terms).await.unwrap();
+        main(terms, worker).await.unwrap();
     });
     Ok(())
+}
+
+#[wasm_bindgen]
+pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
+    worker::worker(event)
 }
 
 #[derive(Debug)]
@@ -66,8 +79,10 @@ enum Block {
     },
 }
 
-async fn main(terms: Vec<u8>) -> Result<(), JsValue> {
+async fn main(terms: Vec<u8>, worker: Worker) -> Result<(), JsValue> {
     panic::set_hook(Box::new(console_error_panic_hook::hook));
+
+    let worker = WorkerWrapper::new(worker);
 
     let terms: Terms = bincode::deserialize(&terms).unwrap();
 
@@ -102,8 +117,19 @@ async fn main(terms: Vec<u8>) -> Result<(), JsValue> {
 
     let defs = Rc::new(RefCell::new(HashMap::new()));
 
+    worker
+        .initialize(&DefWrapper(defs.clone(), terms.clone()))
+        .await;
+
     for term in data {
-        let pad = add_scratchpad(term.into(), pads.clone(), defs.clone(), terms.clone()).await?;
+        let pad = add_scratchpad(
+            term.into(),
+            pads.clone(),
+            defs.clone(),
+            terms.clone(),
+            worker.clone(),
+        )
+        .await?;
 
         container.append_child(&pad.wrapper)?;
 
@@ -264,6 +290,7 @@ async fn add_scratchpad(
     pads: Rc<RefCell<Vec<ScratchpadContainer>>>,
     defs: Rc<RefCell<HashMap<String, (Term<String>, Term<String>)>>>,
     terms: Rc<Terms>,
+    worker: WorkerWrapper,
 ) -> Result<ScratchpadContainer, JsValue> {
     let call: Rc<RefCell<Box<dyn FnMut(JsValue)>>> = Rc::new(RefCell::new(Box::new(|_| {})));
 
@@ -296,6 +323,7 @@ async fn add_scratchpad(
         let terms = terms.clone();
         let data = pad.data.clone();
         let defs = defs.clone();
+        let worker = worker.clone();
         move |e| {
             let e: KeyboardEvent = e.dyn_into().unwrap();
             let code = e.code();
@@ -306,12 +334,14 @@ async fn add_scratchpad(
                     let pads = pads.clone();
                     let terms = terms.clone();
                     let defs = defs.clone();
+                    let worker = worker.clone();
                     spawn_local(async move {
                         let pad = add_scratchpad(
                             zipper::Term::Hole(()),
                             pads.clone(),
                             defs.clone(),
                             terms.clone(),
+                            worker.clone(),
                         )
                         .await
                         .unwrap();
@@ -431,6 +461,7 @@ async fn add_scratchpad(
         let data = pad.data.clone();
         let pads = pads.clone();
         let terms = terms.clone();
+        let worker = worker.clone();
         async move {
             let mut receiver = Box::pin(stream::once(async { () }).chain(receiver));
 
@@ -438,6 +469,11 @@ async fn add_scratchpad(
                 output.set_inner_html("");
 
                 status.remove_attribute("class").unwrap();
+
+                status
+                    .class_list()
+                    .add_3("scratchpad", "status", "pending")
+                    .unwrap();
 
                 let d = data.clone();
 
@@ -450,92 +486,102 @@ async fn add_scratchpad(
                 let conv_term = data.into_term();
 
                 {
+                    let (sender, receiver) = oneshot::channel();
+
                     CACHE.with(|cache| {
                         let defs = DefWrapper(defs.clone(), terms.clone());
                         let cache = &mut *cache.borrow_mut();
                         let data = d;
-                        let check = term.check_in(
-                            &AnalysisTerm::Reference("Whelk".into(), None),
-                            &defs,
-                            &mut |annotation, ty| {
-                                if let Some(annotation) = annotation {
-                                    let annotation = &annotation.annotation;
-                                    *annotation.borrow_mut() = Some(ty.clone().clear_annotation());
-                                }
-                            },
-                            &mut |annotation, ty| {
-                                if let Some(annotation) = annotation {
-                                    if let UiSectionVariance::Hole {
-                                        filled, mutations, ..
-                                    } = &annotation.variant
-                                    {
-                                        *filled.borrow_mut() = Some(ty.clone().clear_annotation());
+                        let wrapper = wrapper.clone();
+                        let output = output.clone();
+                        let status = status.clone();
+                        let worker = worker.clone();
+
+                        spawn_local(async move {
+                            let complete = term.is_complete();
+                            let check = worker
+                                .check(
+                                    term,
+                                    AnalysisTerm::Reference("Whelk".into(), None),
+                                    |annotation, ty| {
+                                        let annotation = &annotation.annotation;
+                                        *annotation.borrow_mut() =
+                                            Some(ty.clone().clear_annotation());
+                                    },
+                                    |annotation, ty| {
+                                        if let UiSectionVariance::Hole {
+                                            filled, mutations, ..
+                                        } = &annotation.variant
+                                        {
+                                            *filled.borrow_mut() =
+                                                Some(ty.clone().clear_annotation());
+                                        }
+                                    },
+                                )
+                                .await;
+                            status.remove_attribute("class").unwrap();
+
+                            let nodes = wrapper.query_selector_all(".error-span").unwrap();
+                            for node in 0..nodes.length() {
+                                let node = nodes.get(node).unwrap();
+                                node.dyn_ref::<Element>()
+                                    .unwrap()
+                                    .class_list()
+                                    .remove_1("error-span")
+                                    .unwrap();
+                            }
+                            if let Cursor::Hole(cursor) = &*data.borrow() {
+                                let annotation = cursor.annotation();
+                                let mut f = false;
+                                if let UiSectionVariance::Hole { filled, .. } = &annotation.variant
+                                {
+                                    if let Some(term) = &*filled.borrow() {
+                                        f = true;
+                                        push_paragraph(
+                                            Block::Term {
+                                                prefix: "filled".into(),
+                                                data: term.clone(),
+                                            },
+                                            &output,
+                                        );
                                     }
                                 }
-                            },
-                            cache,
-                        );
-                        let nodes = wrapper.query_selector_all(".error-span").unwrap();
-                        for node in 0..nodes.length() {
-                            let node = nodes.get(node).unwrap();
-                            node.dyn_ref::<Element>()
-                                .unwrap()
-                                .class_list()
-                                .remove_1("error-span")
-                                .unwrap();
-                        }
-                        if let Cursor::Hole(cursor) = &*data.borrow() {
-                            let annotation = cursor.annotation();
-                            let mut f = false;
-                            if let UiSectionVariance::Hole { filled, .. } = &annotation.variant {
-                                if let Some(term) = &*filled.borrow() {
-                                    f = true;
-                                    push_paragraph(
-                                        Block::Term {
-                                            prefix: "filled".into(),
-                                            data: term.clone(),
-                                        },
-                                        &output,
-                                    );
+                                if !f {
+                                    let annotation = &annotation.annotation;
+
+                                    if let Some(ty) = &*annotation.borrow() {
+                                        push_paragraph(
+                                            Block::Term {
+                                                prefix: "goal".into(),
+                                                data: ty.clone(),
+                                            },
+                                            &output,
+                                        );
+                                    }
                                 }
                             }
-                            if !f {
-                                let annotation = &annotation.annotation;
+                            match check {
+                                Ok(()) if complete => {
+                                    status
+                                        .class_list()
+                                        .add_3("scratchpad", "status", "def-ok")
+                                        .unwrap();
 
-                                if let Some(ty) = &*annotation.borrow() {
-                                    push_paragraph(
-                                        Block::Term {
-                                            prefix: "goal".into(),
-                                            data: ty.clone(),
-                                        },
-                                        &output,
-                                    );
-                                }
-                            }
-                        }
-                        match check {
-                            Ok(()) if term.is_complete() => {
-                                status
-                                    .class_list()
-                                    .add_3("scratchpad", "status", "def-ok")
-                                    .unwrap();
+                                    let evaluator = Substitution(defs.clone());
 
-                                let evaluator = Substitution(defs.clone());
+                                    if let Some(term) = conv_term {
+                                        let term = evaluator.evaluate(term).unwrap();
 
-                                if let Some(term) = conv_term {
-                                    let term = evaluator.evaluate(term).unwrap();
+                                        let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
 
-                                    let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
+                                        let io = match whelk {
+                                            w::Whelk::new { data } => match data {
+                                                w::BoxPoly::new { data } => data,
+                                            },
+                                        };
 
-                                    let io = match whelk {
-                                        w::Whelk::new { data } => match data {
-                                            w::BoxPoly::new { data } => data,
-                                        },
-                                    };
+                                        let output = output.clone();
 
-                                    let output = output.clone();
-
-                                    spawn_local(async move {
                                         output.set_inner_html("");
 
                                         run_io(
@@ -547,29 +593,29 @@ async fn add_scratchpad(
                                         )
                                         .await
                                         .unwrap();
-                                    });
+                                    }
+                                }
+                                Err(AnalysisError::Impossible(AnalysisTerm::Hole(_))) => {
+                                    status.class_list().add_2("scratchpad", "status").unwrap();
+                                }
+                                Err(e) => {
+                                    output.set_inner_html("");
 
-                                    return;
+                                    status
+                                        .class_list()
+                                        .add_3("scratchpad", "status", "def-err")
+                                        .unwrap();
+
+                                    push_paragraph(Block::Error { data: e }, &output);
+                                }
+                                _ => {
+                                    status.class_list().add_2("scratchpad", "status").unwrap();
                                 }
                             }
-                            Err(AnalysisError::Impossible(AnalysisTerm::Hole(_))) => {
-                                status.class_list().add_2("scratchpad", "status").unwrap();
-                            }
-                            Err(e) => {
-                                output.set_inner_html("");
-
-                                status
-                                    .class_list()
-                                    .add_3("scratchpad", "status", "def-err")
-                                    .unwrap();
-
-                                push_paragraph(Block::Error { data: e }, &output);
-                            }
-                            _ => {
-                                status.class_list().add_2("scratchpad", "status").unwrap();
-                            }
-                        }
+                            sender.send(()).unwrap();
+                        });
                     });
+                    receiver.await.unwrap();
                 }
             }
         }
@@ -584,16 +630,27 @@ pub struct DefWrapper(
     Rc<Terms>,
 );
 
-impl analysis::TypedDefinitions<Option<UiSection>> for DefWrapper {
+#[derive(Serialize, Deserialize)]
+pub struct DefWrapperData(HashMap<String, (Term<String>, Term<String>)>, Terms);
+
+impl From<DefWrapper> for DefWrapperData {
+    fn from(data: DefWrapper) -> Self {
+        DefWrapperData(data.0.borrow().clone(), (&*data.1).clone())
+    }
+}
+
+impl From<DefWrapperData> for DefWrapper {
+    fn from(data: DefWrapperData) -> Self {
+        DefWrapper(Rc::new(RefCell::new(data.0)), Rc::new(data.1))
+    }
+}
+
+impl<T> analysis::TypedDefinitions<Option<T>> for DefWrapper {
     fn get_typed(
         &self,
         name: &str,
-    ) -> Option<
-        analysis::DefinitionResult<(
-            AnalysisTerm<Option<UiSection>>,
-            AnalysisTerm<Option<UiSection>>,
-        )>,
-    > {
+    ) -> Option<analysis::DefinitionResult<(AnalysisTerm<Option<T>>, AnalysisTerm<Option<T>>)>>
+    {
         TypedDefinitions::get_typed(self, &name.to_owned()).map(|defs| match defs {
             DefinitionResult::Borrowed((ty, term)) => {
                 analysis::DefinitionResult::Owned((ty.clone().into(), term.clone().into()))

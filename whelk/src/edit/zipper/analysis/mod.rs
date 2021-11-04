@@ -1,6 +1,7 @@
 mod check;
 mod infer;
 pub use infer::AnalysisError;
+use serde::{Deserialize, Serialize};
 mod cursor;
 mod equivalent;
 mod is_complete;
@@ -71,7 +72,7 @@ impl<'a, U: Clone, T: TypedDefinitions<U>> term::TypedDefinitions<String> for De
     }
 }
 
-#[derive(Derivative, Debug, Clone)]
+#[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
 #[derivative(Hash(bound = ""))]
 pub enum AnalysisTerm<T> {
     Lambda {
@@ -273,7 +274,7 @@ impl<T> AnalysisTerm<Option<T>> {
 }
 
 impl<T> AnalysisTerm<T> {
-    fn map_annotation<U, F: Fn(T) -> U>(self, call: &F) -> AnalysisTerm<U> {
+    pub fn map_annotation<U, F: FnMut(T) -> U>(self, call: &mut F) -> AnalysisTerm<U> {
         match self {
             AnalysisTerm::Lambda {
                 erased,
@@ -284,7 +285,7 @@ impl<T> AnalysisTerm<T> {
                 erased,
                 name,
                 annotation: call(annotation),
-                body: Box::new(body.map_annotation(&*call)),
+                body: Box::new(body.map_annotation(&mut *call)),
             },
             AnalysisTerm::Variable(idx, annotation) => {
                 AnalysisTerm::Variable(idx, call(annotation))
@@ -296,12 +297,12 @@ impl<T> AnalysisTerm<T> {
                 annotation,
             } => AnalysisTerm::Application {
                 erased,
-                function: Box::new(function.map_annotation(&*call)),
-                argument: Box::new(argument.map_annotation(&*call)),
+                function: Box::new(function.map_annotation(&mut *call)),
+                argument: Box::new(argument.map_annotation(&mut *call)),
                 annotation: call(annotation),
             },
             AnalysisTerm::Put(term, annotation) => {
-                AnalysisTerm::Put(Box::new(term.map_annotation(&*call)), call(annotation))
+                AnalysisTerm::Put(Box::new(term.map_annotation(&mut *call)), call(annotation))
             }
             AnalysisTerm::Duplication {
                 binder,
@@ -310,8 +311,8 @@ impl<T> AnalysisTerm<T> {
                 annotation,
             } => AnalysisTerm::Duplication {
                 binder,
-                expression: Box::new(expression.map_annotation(&*call)),
-                body: Box::new(body.map_annotation(&*call)),
+                expression: Box::new(expression.map_annotation(&mut *call)),
+                body: Box::new(body.map_annotation(&mut *call)),
                 annotation: call(annotation),
             },
             AnalysisTerm::Reference(r, annotation) => AnalysisTerm::Reference(r, call(annotation)),
@@ -327,18 +328,18 @@ impl<T> AnalysisTerm<T> {
                 erased,
                 name,
                 self_name,
-                argument_type: Box::new(argument_type.map_annotation(&*call)),
-                return_type: Box::new(return_type.map_annotation(&*call)),
+                argument_type: Box::new(argument_type.map_annotation(&mut *call)),
+                return_type: Box::new(return_type.map_annotation(&mut *call)),
                 annotation: call(annotation),
             },
             AnalysisTerm::Wrap(term, annotation) => {
-                AnalysisTerm::Wrap(Box::new(term.map_annotation(&*call)), call(annotation))
+                AnalysisTerm::Wrap(Box::new(term.map_annotation(&mut *call)), call(annotation))
             }
             AnalysisTerm::Hole(annotation) => AnalysisTerm::Hole(call(annotation)),
             AnalysisTerm::Annotation { checked, term, ty } => AnalysisTerm::Annotation {
                 checked,
-                term: Box::new(term.map_annotation(&*call)),
-                ty: Box::new(ty.map_annotation(&*call)),
+                term: Box::new(term.map_annotation(&mut *call)),
+                ty: Box::new(ty.map_annotation(&mut *call)),
             },
         }
     }

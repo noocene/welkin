@@ -27,7 +27,7 @@ impl Cursor<UiSection> {
 
         let term: AnalysisTerm<Option<UiSection>> = cursor.into();
 
-        let root_ty: AnalysisTerm<Option<UiSection>> = root_ty.map_annotation(&|_| None);
+        let root_ty: AnalysisTerm<Option<UiSection>> = root_ty.map_annotation(&mut |_| None);
 
         let _ = term.check_in(
             &root_ty,
