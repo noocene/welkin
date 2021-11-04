@@ -186,6 +186,11 @@ fn save(pads: Rc<RefCell<Vec<ScratchpadContainer>>>) {
         .unwrap();
 }
 
+fn static_scratchpad(term: zipper::Term<()>, target: Node) {
+    let pad = Scratchpad::new_static(term, target);
+    pad.render().unwrap();
+}
+
 fn push_paragraph(data: Block, container: &Element) {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
@@ -227,20 +232,41 @@ fn push_paragraph(data: Block, container: &Element) {
                     annotation,
                 } if annotation.is_some() => {
                     let annotation = annotation.unwrap();
-                    let expected = if expected.is_complete() {
-                        format!("{:?}", welkin_core::term::Term::from(expected))
+                    let el1 = document.create_element("span").unwrap();
+                    el1.class_list().add_1("inline-pad").unwrap();
+                    if expected.no_variables() {
+                        let data: zipper::Term<()> = expected.clear_annotation().into();
+                        static_scratchpad(data, el1.clone().into());
                     } else {
-                        format!("{:?}", expected)
+                        if expected.is_complete() {
+                            el1.set_text_content(Some(&format!(
+                                "{:?}",
+                                welkin_core::term::Term::from(expected)
+                            )));
+                        } else {
+                            el1.set_text_content(Some(&format!("{:?}", expected)));
+                        }
                     };
-                    let got = if got.is_complete() {
-                        format!("{:?}", welkin_core::term::Term::from(got))
+                    let el2 = document.create_element("span").unwrap();
+                    el2.class_list().add_1("inline-pad").unwrap();
+                    if got.no_variables() {
+                        let data: zipper::Term<()> = got.clear_annotation().into();
+                        static_scratchpad(data, el2.clone().into());
                     } else {
-                        format!("{:?}", got)
+                        if got.is_complete() {
+                            el2.set_text_content(Some(&format!(
+                                "{:?}",
+                                welkin_core::term::Term::from(got)
+                            )));
+                        } else {
+                            el2.set_text_content(Some(&format!("{:?}", got)));
+                        }
                     };
-                    paragraph.set_text_content(Some(&format!(
-                        "type error:\nexpected\n\t{}\ngot\n\t{}",
-                        expected, got
-                    )));
+                    paragraph.set_text_content(Some("type error\nexpected "));
+                    paragraph.append_child(&el1).unwrap();
+                    let mid = document.create_text_node("\n     got ");
+                    paragraph.append_child(&mid).unwrap();
+                    paragraph.append_child(&el2).unwrap();
                     annotation.show_error();
                 }
                 AnalysisError::ErasureMismatch {
@@ -272,13 +298,23 @@ fn push_paragraph(data: Block, container: &Element) {
                 .class_list()
                 .add_3("printed", "inference", "content")
                 .unwrap();
+            let inner = document.create_element("div").unwrap();
+            inner.class_list().add_1("inline-pad").unwrap();
             paragraph.set_attribute("data-prefix", &prefix).unwrap();
-            if data.is_complete() {
-                paragraph
-                    .set_text_content(Some(&format!("{:?}", welkin_core::term::Term::from(data))));
+            if data.no_variables() {
+                let data: zipper::Term<()> = data.into();
+                static_scratchpad(data, inner.clone().into());
             } else {
-                paragraph.set_text_content(Some(&format!("{:?}", data)));
+                if data.is_complete() {
+                    paragraph.set_text_content(Some(&format!(
+                        "{:?}",
+                        welkin_core::term::Term::from(data)
+                    )));
+                } else {
+                    paragraph.set_text_content(Some(&format!("{:?}", data)));
+                }
             }
+            paragraph.append_child(&inner).unwrap();
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();
         }
@@ -410,9 +446,9 @@ async fn add_scratchpad(
                                     } = annotation
                                     {
                                         p.remove();
-                                        mutations
-                                            .borrow_mut()
-                                            .push(HoleMutation::Replace(add_ui(term, &sender)));
+                                        mutations.borrow_mut().push(HoleMutation::Replace(add_ui(
+                                            term, &sender, true,
+                                        )));
                                         let _ = sender.try_send(());
                                     }
                                 }

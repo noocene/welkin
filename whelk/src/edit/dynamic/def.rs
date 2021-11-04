@@ -172,8 +172,8 @@ impl DynamicTerm<()> for Def<()> {
         (
             section,
             Box::new(Def {
-                expression: add_ui(self.expression, sender),
-                body: add_ui(self.body, sender),
+                expression: add_ui(self.expression, sender, true),
+                body: add_ui(self.body, sender, true),
                 binder: self.binder,
             }),
         )

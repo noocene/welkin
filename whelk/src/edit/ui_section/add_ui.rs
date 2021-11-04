@@ -21,7 +21,7 @@ use crate::edit::{
 
 use super::UiSection;
 
-pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
+pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>, editable: bool) -> Term<UiSection> {
     let document = web_sys::window().unwrap().document().unwrap();
 
     match term {
@@ -30,7 +30,7 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
         } => Term::Lambda {
             erased,
             name,
-            body: Box::new(add_ui(*body, sender)),
+            body: Box::new(add_ui(*body, sender, editable)),
             annotation: {
                 let mutations = Rc::new(RefCell::new(vec![]));
 
@@ -42,9 +42,9 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
 
                 let span = document.create_element("span").unwrap();
                 span.class_list().add_2("lambda", "arg").unwrap();
-                span.set_attribute("contenteditable", "true").unwrap();
-                span.set_attribute("tabindex", "0").unwrap();
-                configure_contenteditable(&span);
+                if editable {
+                    configure_contenteditable(&span);
+                }
 
                 p.append_child(&span).unwrap();
 
@@ -125,14 +125,17 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             ..
         } => Term::Application {
             erased,
-            function: Box::new(add_ui(*function, sender)),
-            argument: Box::new(add_ui(*argument, sender)),
+            function: Box::new(add_ui(*function, sender, editable)),
+            argument: Box::new(add_ui(*argument, sender, editable)),
             annotation: {
                 let mutations = Rc::new(RefCell::new(vec![]));
                 let container = document.create_element("div").unwrap();
 
                 container.class_list().add_1("application").unwrap();
-                container.set_attribute("tabindex", "0").unwrap();
+
+                if editable {
+                    container.set_attribute("tabindex", "0").unwrap();
+                }
 
                 let argument = document.create_element("span").unwrap();
 
@@ -205,12 +208,15 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 })
             },
         },
-        Term::Put(term, _) => Term::Put(Box::new(add_ui(*term, &sender)), {
+        Term::Put(term, _) => Term::Put(Box::new(add_ui(*term, &sender, editable)), {
             let mutations = Rc::new(RefCell::new(vec![]));
 
             let container = document.create_element("div").unwrap();
             container.class_list().add_1("put").unwrap();
-            container.set_attribute("tabindex", "0").unwrap();
+
+            if editable {
+                container.set_attribute("tabindex", "0").unwrap();
+            }
 
             let span = document.create_element("span").unwrap();
             span.class_list().add_1("put-inner").unwrap();
@@ -274,8 +280,8 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             ..
         } => Term::Duplication {
             binder,
-            expression: Box::new(add_ui(*expression, &sender)),
-            body: Box::new(add_ui(*body, &sender)),
+            expression: Box::new(add_ui(*expression, &sender, editable)),
+            body: Box::new(add_ui(*body, &sender, editable)),
             annotation: {
                 let mutations = Rc::new(RefCell::new(vec![]));
 
@@ -285,9 +291,9 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 let span = document.create_element("span").unwrap();
                 span.class_list().add_1("duplication-inner").unwrap();
 
-                span.set_attribute("contenteditable", "true").unwrap();
-                span.set_attribute("tabindex", "0").unwrap();
-                configure_contenteditable(&span);
+                if editable {
+                    configure_contenteditable(&span);
+                }
 
                 let closure = Closure::wrap(Box::new({
                     let span = span.clone();
@@ -373,7 +379,9 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
 
             p.class_list().add_1("reference").unwrap();
 
-            configure_contenteditable(&p);
+            if editable {
+                configure_contenteditable(&p);
+            }
 
             let closure = Closure::wrap(Box::new({
                 let p = p.clone();
@@ -462,7 +470,10 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             let p = document.create_element("p").unwrap();
 
             p.class_list().add_1("universe").unwrap();
-            p.set_attribute("tabindex", "0").unwrap();
+
+            if editable {
+                p.set_attribute("tabindex", "0").unwrap();
+            }
 
             let focus_closure = Closure::wrap(Box::new({
                 let mutations = mutations.clone();
@@ -514,8 +525,8 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
         } => Term::Function {
             erased,
             name,
-            argument_type: Box::new(add_ui(*argument_type, &sender)),
-            return_type: Box::new(add_ui(*return_type, &sender)),
+            argument_type: Box::new(add_ui(*argument_type, &sender, editable)),
+            return_type: Box::new(add_ui(*return_type, &sender, editable)),
             self_name,
             annotation: {
                 let mutations = Rc::new(RefCell::new(vec![]));
@@ -529,13 +540,13 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 let self_span = document.create_element("sub").unwrap();
                 self_span.class_list().add_1("function-self-name").unwrap();
 
-                span.set_attribute("contenteditable", "true").unwrap();
-                span.set_attribute("tabindex", "0").unwrap();
-                configure_contenteditable(&span);
+                if editable {
+                    configure_contenteditable(&span);
+                }
 
-                self_span.set_attribute("contenteditable", "true").unwrap();
-                self_span.set_attribute("tabindex", "0").unwrap();
-                configure_contenteditable(&self_span);
+                if editable {
+                    configure_contenteditable(&self_span);
+                }
 
                 let argument_type_span = document.create_element("span").unwrap();
                 argument_type_span
@@ -704,12 +715,15 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
                 })
             },
         },
-        Term::Wrap(term, _) => Term::Wrap(Box::new(add_ui(*term, &sender)), {
+        Term::Wrap(term, _) => Term::Wrap(Box::new(add_ui(*term, &sender, editable)), {
             let mutations = Rc::new(RefCell::new(vec![]));
 
             let container = document.create_element("div").unwrap();
             container.class_list().add_1("wrap").unwrap();
-            container.set_attribute("tabindex", "0").unwrap();
+
+            if editable {
+                container.set_attribute("tabindex", "0").unwrap();
+            }
 
             let span = document.create_element("span").unwrap();
             span.class_list().add_1("wrap-inner").unwrap();
@@ -767,7 +781,7 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
             })
         }),
 
-        Term::Hole(_) => Term::Hole(ui_section(Term::Hole(()), sender)),
+        Term::Hole(_) => Term::Hole(ui_section_editable(Term::Hole(()), sender, editable)),
 
         Term::Dynamic(cursor) => {
             let (_, term) = cursor.into_inner();
@@ -780,6 +794,10 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>) -> Term<UiSection> {
 }
 
 pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
+    ui_section_editable(term, sender, true)
+}
+
+pub fn ui_section_editable(term: Term, sender: &Sender<()>, editable: bool) -> UiSection {
     let document = web_sys::window().unwrap().document().unwrap();
 
     match term {
@@ -791,7 +809,9 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
 
             p.class_list().add_1("hole").unwrap();
 
-            configure_contenteditable(&p);
+            if editable {
+                configure_contenteditable(&p);
+            }
 
             let closure = Closure::wrap(Box::new({
                 let p = p.clone();
@@ -808,6 +828,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                             'r' => Some(HoleMutation::Replace(add_ui(
                                 Term::Reference("".into(), ()),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'l' => Some(HoleMutation::Replace(add_ui(
                                 Term::Lambda {
@@ -817,6 +838,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     annotation: (),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'L' => Some(HoleMutation::Replace(add_ui(
                                 Term::Lambda {
@@ -826,6 +848,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     annotation: (),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'a' => Some(HoleMutation::Replace(add_ui(
                                 Term::Application {
@@ -835,6 +858,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     annotation: (),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'A' => Some(HoleMutation::Replace(add_ui(
                                 Term::Application {
@@ -844,18 +868,22 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     annotation: (),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'u' => Some(HoleMutation::Replace(add_ui(
                                 Term::Universe(()),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'w' => Some(HoleMutation::Replace(add_ui(
                                 Term::Wrap(Box::new(Term::Hole(())), ()),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'p' => Some(HoleMutation::Replace(add_ui(
                                 Term::Put(Box::new(Term::Hole(())), ()),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'd' => Some(HoleMutation::Replace(add_ui(
                                 Term::Duplication {
@@ -865,6 +893,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     annotation: (),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'f' => Some(HoleMutation::Replace(add_ui(
                                 Term::Function {
@@ -876,6 +905,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     return_type: Box::new(Term::Hole(())),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'F' => Some(HoleMutation::Replace(add_ui(
                                 Term::Function {
@@ -887,6 +917,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     return_type: Box::new(Term::Hole(())),
                                 },
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'D' => Some(HoleMutation::Replace(add_ui(
                                 Term::Dynamic(Dynamic::new(
@@ -894,14 +925,17 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                     Def::new(Term::Hole(()), Term::Hole(()), None),
                                 )),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             't' => Some(HoleMutation::Replace(add_ui(
                                 Term::Dynamic(Dynamic::new((), Root::new(Adt::new()))),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             'i' => Some(HoleMutation::Replace(add_ui(
                                 Term::Dynamic(Dynamic::new((), Root::new(Invoke::new()))),
                                 &sender.borrow().clone(),
+                                true,
                             ))),
                             '?' => {
                                 let a = if let Some(term) = filled.borrow_mut().take() {
@@ -909,6 +943,7 @@ pub fn ui_section(term: Term, sender: &Sender<()>) -> UiSection {
                                         Some(HoleMutation::Replace(add_ui(
                                             term.into(),
                                             &sender.borrow().clone(),
+                                            true,
                                         )))
                                     } else {
                                         None

@@ -297,7 +297,7 @@ impl DynamicTerm<UiSection> for Root {
         if let Some(replace) = context.borrow().needs_remove.replace(None) {
             cursor = match cursor {
                 Cursor::Dynamic(cursor) => {
-                    Cursor::from_term_and_path(add_ui(replace, sender), cursor.up)
+                    Cursor::from_term_and_path(add_ui(replace, sender, true), cursor.up)
                 }
                 _ => todo!(),
             };

@@ -26,13 +26,89 @@ pub struct Scratchpad {
     focus_event_handler: Closure<dyn FnMut(JsValue)>,
     has_focus: Rc<RefCell<bool>>,
     target_node: Node,
+    editable: bool,
     on_change: OnChangeWrapper,
 }
 
 impl Scratchpad {
+    pub fn new_static(term: Term, target_node: Node) -> Self {
+        let (mut sender, receiver) = channel(0);
+        let data = Rc::new(RefCell::new(add_ui(term, &sender, false).into()));
+
+        let scratchpad = Scratchpad {
+            data: data.clone(),
+            needs_update: receiver,
+            target_node,
+            has_focus: Rc::new(RefCell::new(false)),
+            editable: false,
+            sender: sender.clone(),
+            on_change: OnChangeWrapper::new(),
+            focus_event_handler: Closure::wrap(Box::new(move |_| {})),
+            clipboard_event_handler: Closure::wrap(Box::new({
+                let mut sender = sender.clone();
+                move |e: JsValue| {
+                    let copy = |f: Box<dyn Fn(String)>| {
+                        let data = &mut *data.borrow_mut();
+
+                        let term: Term<()> =
+                            Term::<UiSection>::from(data.clone()).clear_annotation();
+
+                        let waker = noop_waker();
+                        let mut context = Context::from_waker(&waker);
+
+                        let mut fut = Box::pin(TermData::from(term.clear_annotation()).encode());
+
+                        let data = loop {
+                            match fut.as_mut().poll(&mut context) {
+                                std::task::Poll::Ready(data) => break data,
+                                std::task::Poll::Pending => {}
+                            }
+                        };
+
+                        if let Ok(data) = data {
+                            f(data);
+                        }
+                    };
+
+                    if let Some(e) = e.dyn_ref::<KeyboardEvent>() {
+                        if e.ctrl_key() {
+                            if e.key() == "c" {
+                                copy(Box::new(|data| {
+                                    spawn_local(async move {
+                                        let navigator = web_sys::window().unwrap().navigator();
+                                        let clipboard = navigator.clipboard().unwrap();
+                                        JsFuture::from(clipboard.write_text(&data)).await.unwrap();
+                                    });
+                                }));
+                                e.prevent_default();
+                                e.stop_propagation();
+                            }
+                        }
+
+                        return;
+                    }
+                    let e: ClipboardEvent = e.dyn_into().unwrap();
+                    let c_data = e.clipboard_data().unwrap();
+
+                    match e.type_().as_str() {
+                        "copy" => {
+                            copy(Box::new(|data| {
+                                c_data.set_data("text/plain", &data).unwrap();
+                            }));
+                            e.prevent_default();
+                        }
+                        _ => {}
+                    }
+                }
+            }) as Box<dyn FnMut(JsValue)>),
+        };
+
+        scratchpad
+    }
+
     pub fn new(term: Term, target_node: Node) -> (Sender<()>, Self) {
         let (mut sender, receiver) = channel(0);
-        let data = Rc::new(RefCell::new(add_ui(term, &sender).into()));
+        let data = Rc::new(RefCell::new(add_ui(term, &sender, true).into()));
 
         let has_focus = Rc::new(RefCell::new(false));
 
@@ -73,6 +149,7 @@ impl Scratchpad {
             needs_update: receiver,
             target_node,
             has_focus,
+            editable: true,
             sender: sender.clone(),
             on_change: OnChangeWrapper::new(),
             focus_event_handler,
@@ -170,7 +247,7 @@ impl Scratchpad {
                                             UiSectionVariance::Hole { p, mutations, .. } => {
                                                 p.remove();
                                                 mutations.borrow_mut().push(HoleMutation::Replace(
-                                                    add_ui(data.into(), &sender),
+                                                    add_ui(data.into(), &sender, true),
                                                 ));
                                             }
                                             _ => panic!(),
@@ -192,7 +269,7 @@ impl Scratchpad {
     }
 
     pub fn force_update(&mut self, data: Term) {
-        *self.data.borrow_mut() = add_ui(data, &self.sender).into();
+        *self.data.borrow_mut() = add_ui(data, &self.sender, self.editable).into();
         for i in 0..self.target_node.child_nodes().length() {
             if let Some(el) = self
                 .target_node
