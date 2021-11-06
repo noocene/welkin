@@ -194,7 +194,7 @@ impl DynamicTerm<()> for Root {
     }
 
     fn expand(self: Box<Self>) -> Term<()> {
-        todo!()
+        self.implementation.borrow().expand()
     }
 
     fn box_clone(&self) -> Box<dyn DynamicTerm<()>> {

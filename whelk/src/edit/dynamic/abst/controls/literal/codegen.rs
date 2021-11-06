@@ -172,44 +172,87 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedSize {
     }
 }
 
-pub fn make_char(data: char) -> Term<()> {
-    let character = (data as u32).to_be_bytes();
-    let mut bits = vec![];
-    for byte in character {
-        for bit in 0..8u8 {
-            if ((1 << bit) & byte) != 0 {
-                bits.push(true);
-            } else {
-                bits.push(false);
-            }
-        }
-    }
+#[derive(Serialize, Deserialize, Clone, Hash)]
+pub struct CompressedChar {
+    char: char,
+}
 
-    Term::Application {
-        function: Box::new(Term::Reference("Char::new".into(), ())),
-        argument: Box::new(Term::Compressed(Box::new(CompressedWord::new(bits)))),
-        erased: false,
-        annotation: (),
+impl CompressedChar {
+    fn new(char: char) -> CompressedChar {
+        CompressedChar { char }
     }
 }
 
-pub fn make_vector(ty: Term<()>, data: Vec<Term<()>>) -> Term<()> {
-    let mut term = Term::Reference("Vector::nil".into(), ());
+impl<T: Zero + Clone> CompressedTerm<T> for CompressedChar {
+    fn expand(&self) -> Term<T> {
+        let character = (self.char as u32).to_be_bytes();
+        let mut bits = vec![];
+        for byte in character {
+            for bit in 0..8u8 {
+                if ((1 << bit) & byte) != 0 {
+                    bits.push(true);
+                } else {
+                    bits.push(false);
+                }
+            }
+        }
+
+        Term::Application {
+            function: Box::new(Term::Reference("Char::new".into(), T::zero())),
+            argument: Box::new(Term::Compressed(Box::new(CompressedWord::new(bits)))),
+            erased: false,
+            annotation: T::zero(),
+        }
+    }
+
+    fn box_clone(&self) -> Box<dyn CompressedTerm<T>> {
+        Box::new(self.clone())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "~lit Char {:?}", self.char)
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        let mut hasher = DefaultHasher::new();
+        TypeId::of::<Self>().hash(&mut hasher);
+        let mut data = hasher.finish().to_be_bytes().to_vec();
+        data.extend(bincode::serialize(&self).unwrap());
+        data
+    }
+
+    fn concrete_ty(&self) -> Option<Term<T>> {
+        Some(Term::Reference("Char".into(), T::zero()))
+    }
+
+    fn annotation(&self) -> T {
+        T::zero()
+    }
+
+    fn hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        Hash::hash(self, &mut hasher);
+        hasher.finish()
+    }
+}
+
+pub fn make_vector<T: Zero + Clone>(ty: Term<T>, data: Vec<Term<T>>) -> Term<T> {
+    let mut term = Term::Reference("Vector::nil".into(), T::zero());
 
     term = Term::Application {
         function: Box::new(term),
         argument: Box::new(ty.clone()),
         erased: true,
-        annotation: (),
+        annotation: T::zero(),
     };
 
-    let mut cons = Term::Reference("Vector::cons".into(), ());
+    let mut cons = Term::Reference("Vector::cons".into(), T::zero());
 
     cons = Term::Application {
         function: Box::new(cons),
         argument: Box::new(ty),
         erased: true,
-        annotation: (),
+        annotation: T::zero(),
     };
 
     for (idx, element) in data.into_iter().rev().enumerate() {
@@ -217,40 +260,95 @@ pub fn make_vector(ty: Term<()>, data: Vec<Term<()>>) -> Term<()> {
             function: Box::new(cons.clone()),
             argument: Box::new(Term::Compressed(Box::new(CompressedSize::new(idx)))),
             erased: true,
-            annotation: (),
+            annotation: T::zero(),
         };
 
         let call = Term::Application {
             function: Box::new(call),
             argument: Box::new(element),
             erased: false,
-            annotation: (),
+            annotation: T::zero(),
         };
 
         term = Term::Application {
             function: Box::new(call),
             argument: Box::new(term),
             erased: false,
-            annotation: (),
+            annotation: T::zero(),
         };
     }
 
     term
 }
 
-pub fn make_string(data: String) -> Term<()> {
-    Term::Application {
-        function: Box::new(Term::Application {
+#[derive(Serialize, Deserialize, Clone, Hash)]
+pub struct CompressedString {
+    data: String,
+}
+
+impl CompressedString {
+    pub fn new(data: String) -> CompressedString {
+        CompressedString { data }
+    }
+}
+
+impl<T: Zero + Clone> CompressedTerm<T> for CompressedString {
+    fn expand(&self) -> Term<T> {
+        Term::Application {
+            function: Box::new(Term::Application {
+                erased: true,
+                function: Box::new(Term::Reference("String::new".into(), T::zero())),
+                argument: Box::new(Term::Compressed(Box::new(CompressedSize::new(
+                    self.data.len(),
+                )))),
+                annotation: T::zero(),
+            }),
+            argument: Box::new(make_vector(
+                Term::Reference("Char".into(), T::zero()),
+                self.data
+                    .chars()
+                    .map(|character| Term::Compressed(Box::new(CompressedChar::new(character))))
+                    .collect(),
+            )),
+            annotation: T::zero(),
+            erased: false,
+        }
+    }
+
+    fn box_clone(&self) -> Box<dyn CompressedTerm<T>> {
+        Box::new(self.clone())
+    }
+
+    fn debug(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "~lit String {}", self.data)
+    }
+
+    fn to_vec(&self) -> Vec<u8> {
+        let mut hasher = DefaultHasher::new();
+        TypeId::of::<Self>().hash(&mut hasher);
+        let mut data = hasher.finish().to_be_bytes().to_vec();
+        data.extend(bincode::serialize(&self).unwrap());
+        data
+    }
+
+    fn concrete_ty(&self) -> Option<Term<T>> {
+        Some(Term::Application {
             erased: true,
-            function: Box::new(Term::Reference("String::new".into(), ())),
-            argument: Box::new(Term::Compressed(Box::new(CompressedSize::new(data.len())))),
-            annotation: (),
-        }),
-        argument: Box::new(make_vector(
-            Term::Reference("Char".into(), ()),
-            data.chars().map(|character| make_char(character)).collect(),
-        )),
-        annotation: (),
-        erased: false,
+            annotation: T::zero(),
+            function: Box::new(Term::Reference("String".into(), T::zero())),
+            argument: Box::new(Term::Compressed(Box::new(CompressedSize::new(
+                self.data.len(),
+            )))),
+        })
+    }
+
+    fn annotation(&self) -> T {
+        T::zero()
+    }
+
+    fn hash(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        Hash::hash(self, &mut hasher);
+        hasher.finish()
     }
 }

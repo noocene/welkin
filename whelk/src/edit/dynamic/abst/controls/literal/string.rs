@@ -7,7 +7,7 @@ use crate::edit::{
     zipper::{dynamic::Dynamic, Term},
 };
 
-use super::{codegen::make_string, ControlData, Literal};
+use super::{CompressedString, ControlData, Literal};
 
 pub struct StringLiteral<T: HasInitializedField<String> + HasStatic + ?Sized> {
     field: Option<<T as HasField<String>>::Field>,
@@ -80,7 +80,7 @@ where
     }
 
     fn expand(&self) -> Term<()> {
-        let term = make_string(self.field_content.clone());
+        let term = Term::Compressed(Box::new(CompressedString::new(self.field_content.clone())));
         term
     }
 

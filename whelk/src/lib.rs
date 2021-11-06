@@ -521,8 +521,10 @@ async fn add_scratchpad(
                     data = data.ascend();
                 }
 
+                let perf = web_sys::window().unwrap().performance().unwrap();
+
+                let time = perf.now();
                 let term: AnalysisTerm<Option<UiSection>> = data.clone().into();
-                let conv_term = data.into_term();
 
                 {
                     let (sender, receiver) = oneshot::channel();
@@ -538,9 +540,10 @@ async fn add_scratchpad(
 
                         spawn_local(async move {
                             let complete = term.is_complete();
+                            let time = perf.now();
                             let check = worker
                                 .check(
-                                    term,
+                                    term.clone(),
                                     AnalysisTerm::Reference("Whelk".into(), None),
                                     |annotation, ty| {
                                         let annotation = &annotation.annotation;
@@ -558,6 +561,7 @@ async fn add_scratchpad(
                                     },
                                 )
                                 .await;
+                            console_log!("check took {:.1}ms", perf.now() - time);
                             status.remove_attribute("class").unwrap();
 
                             let nodes = wrapper.query_selector_all(".error-span").unwrap();
@@ -608,12 +612,12 @@ async fn add_scratchpad(
 
                                     let evaluator = Substitution(defs.clone());
 
-                                    console_log!("a");
+                                    if term.is_complete() {
+                                        let time = perf.now();
 
-                                    if let Some(term) = conv_term {
-                                        console_log!("b");
-
-                                        let term = evaluator.evaluate(term).unwrap();
+                                        let term = evaluator
+                                            .evaluate(term.clear_annotation().into())
+                                            .unwrap();
 
                                         let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
 
@@ -633,9 +637,11 @@ async fn add_scratchpad(
                                             &mut stream::pending(),
                                             &defs,
                                             &evaluator,
+                                            &worker,
                                         )
                                         .await
                                         .unwrap();
+                                        console_log!("evaluate took {:.1}ms", perf.now() - time);
                                     }
                                 }
                                 Err(AnalysisError::Impossible(AnalysisTerm::Hole(_))) => {
@@ -868,6 +874,7 @@ async fn run_io<
     receive: &mut R,
     defs: &DefWrapper,
     evaluator: &E,
+    worker: &WorkerWrapper,
 ) -> Result<D, anyhow::Error>
 where
     E::Error: Error + Send + Sync,
@@ -903,8 +910,15 @@ where
                     loop {
                         request
                             .step(&*evaluator, |io| async {
-                                run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator)
-                                    .await
+                                run_io(
+                                    io,
+                                    &*push_paragraph,
+                                    &mut *receive,
+                                    &*defs,
+                                    &*evaluator,
+                                    &*worker,
+                                )
+                                .await
                             })
                             .await?;
                         if {
@@ -937,7 +951,15 @@ where
                         .unwrap(),
                         &*evaluator,
                     )?;
-                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                    run_io(
+                        io,
+                        &*push_paragraph,
+                        &mut *receive,
+                        &*defs,
+                        &*evaluator,
+                        &*worker,
+                    )
+                    .await
                 }
                 w::WhelkRequest::print { data } => {
                     push_paragraph(Block::Printed {
@@ -949,7 +971,15 @@ where
                         .into_request()
                         .unwrap()
                         .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
-                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                    run_io(
+                        io,
+                        &*push_paragraph,
+                        &mut *receive,
+                        &*defs,
+                        &*evaluator,
+                        &*worker,
+                    )
+                    .await
                 }
                 w::WhelkRequest::define { name, term, r#type } => {
                     let name: String = match name {
@@ -964,13 +994,25 @@ where
                     let term = term.0.clone();
                     let ty = r#type.0.clone();
 
-                    defs.0.borrow_mut().insert(name, (ty, term));
+                    defs.0
+                        .borrow_mut()
+                        .insert(name.clone(), (ty.clone(), term.clone()));
+
+                    worker.register(name, ty, term).await;
 
                     let io = io
                         .into_request()
                         .unwrap()
                         .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
-                    run_io(io, &*push_paragraph, &mut *receive, &*defs, &*evaluator).await
+                    run_io(
+                        io,
+                        &*push_paragraph,
+                        &mut *receive,
+                        &*defs,
+                        &*evaluator,
+                        &*worker,
+                    )
+                    .await
                 }
             }
         }

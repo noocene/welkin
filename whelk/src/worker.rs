@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use web_sys::{DedicatedWorkerGlobalScope, MessageEvent, Worker};
-use welkin_core::term::MapCache;
+use welkin_core::term::{MapCache, Term};
 
 use crate::{
     edit::zipper::analysis::{AnalysisError, AnalysisTerm},
@@ -125,11 +125,19 @@ impl WorkerWrapper {
             .data
             .unwrap();
     }
+
+    pub async fn register(&self, name: String, ty: Term<String>, term: Term<String>) {
+        self.make_request(WorkerRequestVariant::Register(name, ty, term))
+            .await
+            .data
+            .unwrap()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum WorkerRequestVariant {
     Check(AnalysisTerm<Option<u64>>, AnalysisTerm<Option<u64>>),
+    Register(String, Term<String>, Term<String>),
     Initialize(DefWrapperData),
 }
 
@@ -190,6 +198,17 @@ pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
         WorkerRequestVariant::Initialize(data) => {
             DEFS.with(|defs| {
                 *defs.borrow_mut() = Some(data.into());
+            });
+            Ok(())
+        }
+        WorkerRequestVariant::Register(name, ty, term) => {
+            DEFS.with(|defs| {
+                defs.borrow()
+                    .as_ref()
+                    .unwrap()
+                    .0
+                    .borrow_mut()
+                    .insert(name, (ty, term));
             });
             Ok(())
         }

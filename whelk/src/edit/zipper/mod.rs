@@ -21,7 +21,9 @@ use welkin_core::term::{self, Index};
 
 use self::dynamic::{Dynamic, DynamicTerm};
 
-use super::dynamic::abst::controls::{CompressedSize, CompressedWord, Zero};
+use super::dynamic::abst::controls::{
+    CompressedChar, CompressedSize, CompressedString, CompressedWord, Zero,
+};
 
 #[derive(Debug, Clone, MinCodec, Serialize, Deserialize)]
 #[bounds()]
@@ -463,6 +465,14 @@ impl<'de, T: Zero + Clone> Deserialize<'de> for Box<dyn CompressedTerm<T>> {
         } else if data == ty_hash::<CompressedWord>() {
             Ok(Box::new(
                 bincode::deserialize::<CompressedWord>(&buf[8..]).unwrap(),
+            ))
+        } else if data == ty_hash::<CompressedChar>() {
+            Ok(Box::new(
+                bincode::deserialize::<CompressedChar>(&buf[8..]).unwrap(),
+            ))
+        } else if data == ty_hash::<CompressedString>() {
+            Ok(Box::new(
+                bincode::deserialize::<CompressedString>(&buf[8..]).unwrap(),
             ))
         } else {
             panic!()
@@ -1646,13 +1656,7 @@ impl<T: 'static> Cursor<T> {
                 up,
             }),
 
-            Term::Compressed(data) => {
-                let any = data.as_any();
-
-                // TODO regenerate literals
-
-                Cursor::from_term_and_path(data.expand(), up)
-            }
+            Term::Compressed(data) => Cursor::from_term_and_path(data.expand(), up),
         }
     }
 
