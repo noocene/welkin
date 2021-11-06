@@ -98,7 +98,7 @@ impl WorkerWrapper {
             annotate(
                 annotations.get(&(idx as _)).unwrap().clone(),
                 ty.map_annotation(&mut |annotation| {
-                    annotation.map(|idx| annotations.get(&(idx as _)).unwrap().clone())
+                    annotation.and_then(|idx| annotations.get(&(idx as _)).cloned())
                 }),
             )
         }
@@ -107,14 +107,14 @@ impl WorkerWrapper {
             fill_hole(
                 annotations.get(&(idx as _)).unwrap().clone(),
                 ty.map_annotation(&mut |annotation| {
-                    annotation.map(|idx| annotations.get(&(idx as _)).unwrap().clone())
+                    annotation.and_then(|idx| annotations.get(&(idx as _)).cloned())
                 }),
             )
         }
 
         resp.data.map_err(|e| {
             e.map_annotation(&mut |annotation| {
-                annotation.map(|idx| annotations.remove(&(idx as _)).unwrap())
+                annotation.and_then(|idx| annotations.remove(&(idx as _)))
             })
         })
     }

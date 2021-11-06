@@ -55,3 +55,4 @@ downcast-rs = "1.2.0"
 uuid = { version = "0.8.2", features = ["v4", "serde", "wasm-bindgen"] }
 js-sys = "0.3.55"
 bumpalo = "3.8.0"
+typetag = "0.1.7"

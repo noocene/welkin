@@ -1,26 +1,31 @@
 mod adt;
 pub use adt::*;
 mod invoke;
+mod literal;
 pub use invoke::*;
+pub use literal::*;
 
 use mincodec::MinCodec;
 
 use super::{
     AbstractDynamic, Container, DynamicContext, FieldFocus, FieldRead, FieldSetColor,
     FieldTriggersAppend, FieldTriggersRemove, HasContainer, HasField, HasInitializedField,
-    HasStatic, Static, VStack, Wrapper,
+    HasStatic, Replace, Static, VStack, Wrapper,
 };
 
 #[derive(MinCodec, Clone)]
 pub enum ControlData {
     Adt(AdtData),
+    Literal,
     Invoke,
+    StringLiteral(String),
 }
 
 impl ControlData {
-    pub fn to_control<T: DynamicContext + HasStatic + HasContainer<VStack> + HasInitializedField<String> + ?Sized + 'static>(self) -> Box<dyn AbstractDynamic<T>>
+    pub fn to_control<T: DynamicContext + Replace + HasStatic + HasContainer<VStack> + HasInitializedField<String> + ?Sized + 'static>(self) -> Box<dyn AbstractDynamic<T>>
         where
-            <T as HasField<String>>::Field: FieldRead<Data = String> + FieldSetColor + FieldTriggersRemove,
+            <T as HasField<String>>::Field: FieldRead<Data = String> + FieldSetColor + FieldTriggersAppend + FieldTriggersRemove,
+            <T as HasField<Static>>::Field: FieldSetColor,
             <T as HasField<VStack>>::Field: Container,
             <<T as HasField<VStack>>::Field as Container>::Context: HasContainer<Wrapper>,
             <<<T as HasField<VStack>>::Field as Container>::Context as HasField<Wrapper>>::Field: Container,
@@ -32,6 +37,8 @@ impl ControlData {
         match self {
             ControlData::Adt(data) => Box::new(Adt::from(data)),
             ControlData::Invoke => Box::new(Invoke::new()),
+            ControlData::Literal => Box::new(Literal::new()),
+            ControlData::StringLiteral(data) => Box::new(StringLiteral::from(data)),
         }
     }
 }

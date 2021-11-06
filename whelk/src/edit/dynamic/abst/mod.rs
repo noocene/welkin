@@ -86,6 +86,10 @@ pub trait DynamicContext {
     fn remove(&mut self);
 }
 
+pub trait Replace: DynamicContext {
+    fn replace(&mut self, with: Term<()>);
+}
+
 pub struct Static(pub String);
 
 pub trait HasStatic: HasField<Static, Initializer = Static> {}

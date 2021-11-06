@@ -22,6 +22,10 @@ impl<T> AnalysisTerm<T> {
             AnalysisTerm::Wrap(term, _) => term.is_complete(),
             AnalysisTerm::Hole(_) => false,
             AnalysisTerm::Annotation { term, ty, .. } => term.is_complete() && ty.is_complete(),
+            AnalysisTerm::Compressed(_) => {
+                // TODO actual implementation
+                true
+            }
         }
     }
 }
@@ -48,6 +52,10 @@ impl<T> AnalysisTerm<T> {
             AnalysisTerm::Wrap(term, _) => term.no_variables(),
             AnalysisTerm::Hole(_) => true,
             AnalysisTerm::Annotation { term, ty, .. } => term.no_variables() && ty.no_variables(),
+            AnalysisTerm::Compressed(_) => {
+                // TODO actual implementation
+                true
+            }
         }
     }
 }

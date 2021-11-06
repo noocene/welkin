@@ -49,6 +49,9 @@ impl<T> AnalysisTerm<T> {
                 argument_type.shift_by(replaced, by);
                 return_type.shift_by(replaced + 2, by);
             }
+            Compressed(_) => {
+                // TODO shift compressed term?
+            }
         }
     }
 

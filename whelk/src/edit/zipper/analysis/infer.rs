@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use welkin_core::term::EqualityCache;
 
+use crate::edit::zipper::analysis::BasicContext;
+
 use super::{normalize::NormalizationError, AnalysisTerm, TypedDefinitions};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -240,6 +242,15 @@ impl<T> AnalysisTerm<Option<T>> {
                 )?),
                 None,
             ),
+            Compressed(term) => {
+                let ty = term.concrete_ty();
+
+                if let Some(ty) = ty {
+                    AnalysisTerm::from_unit_term_and_context(ty, &mut BasicContext::new())
+                } else {
+                    Err(AnalysisError::Impossible(self.clone()))?
+                }
+            }
 
             _ => Err(AnalysisError::Impossible(self.clone()))?,
         })

@@ -14,7 +14,9 @@ use std::marker::PhantomData;
 use derivative::Derivative;
 use welkin_core::term::{self, Index};
 
-use super::{Cursor, Term};
+use crate::edit::dynamic::abst::controls::Zero;
+
+use super::{CompressedTerm, Cursor, Term};
 
 pub enum DefinitionResult<'a, T> {
     Borrowed(&'a T),
@@ -119,9 +121,10 @@ pub enum AnalysisTerm<T> {
         term: Box<AnalysisTerm<T>>,
         ty: Box<AnalysisTerm<T>>,
     },
+    Compressed(Box<dyn CompressedTerm<()>>),
 }
 
-impl<T> From<AnalysisTerm<T>> for Term<T> {
+impl<T: Zero + Clone> From<AnalysisTerm<T>> for Term<T> {
     fn from(term: AnalysisTerm<T>) -> Self {
         match term {
             AnalysisTerm::Lambda {
@@ -181,6 +184,11 @@ impl<T> From<AnalysisTerm<T>> for Term<T> {
             }
             AnalysisTerm::Hole(annotation) => Term::Hole(annotation),
             AnalysisTerm::Annotation { checked, term, ty } => (*term).into(),
+            AnalysisTerm::Compressed(data) => {
+                // TODO correct
+                AnalysisTerm::from_unit_term_and_context(data.expand(), &mut BasicContext::new())
+                    .into()
+            }
         }
     }
 }
@@ -206,6 +214,7 @@ impl<T> AnalysisTerm<Option<T>> {
             AnalysisTerm::Wrap(_, annotation) => annotation.as_ref().clone(),
             AnalysisTerm::Hole(annotation) => annotation.as_ref().clone(),
             AnalysisTerm::Annotation { .. } => None,
+            AnalysisTerm::Compressed(_) => None,
         }
     }
 
@@ -269,6 +278,7 @@ impl<T> AnalysisTerm<Option<T>> {
                 term: Box::new(term.clear_annotation()),
                 ty: Box::new(ty.clear_annotation()),
             },
+            AnalysisTerm::Compressed(data) => AnalysisTerm::Compressed(data),
         }
     }
 }
@@ -341,11 +351,12 @@ impl<T> AnalysisTerm<T> {
                 term: Box::new(term.map_annotation(&mut *call)),
                 ty: Box::new(ty.map_annotation(&mut *call)),
             },
+            AnalysisTerm::Compressed(data) => AnalysisTerm::Compressed(data),
         }
     }
 }
 
-impl<T: Clone> From<Cursor<T>> for AnalysisTerm<Option<T>> {
+impl<T: Clone + 'static> From<Cursor<T>> for AnalysisTerm<Option<T>> {
     fn from(data: Cursor<T>) -> Self {
         match data {
             Cursor::Lambda(cursor) => AnalysisTerm::Lambda {
@@ -403,9 +414,191 @@ impl<T: Clone> From<Cursor<T>> for AnalysisTerm<Option<T>> {
             Cursor::Hole(cursor) => AnalysisTerm::Hole(Some(cursor.annotation)),
 
             Cursor::Dynamic(cursor) => {
-                // TODO proper expansion here
-                AnalysisTerm::Hole(None)
+                let term = cursor.clone().expand();
+                AnalysisTerm::from_unit_term_and_context(
+                    term,
+                    &mut DescentContext::new(&Cursor::Dynamic(cursor)),
+                )
             }
+        }
+    }
+}
+
+struct DescentContext<'a, T> {
+    cursor: &'a Cursor<T>,
+    bindings: Vec<Option<String>>,
+}
+
+impl<'a, T> DescentContext<'a, T> {
+    fn new(cursor: &'a Cursor<T>) -> Self {
+        DescentContext {
+            cursor,
+            bindings: vec![],
+        }
+    }
+}
+
+pub struct BasicContext {
+    bindings: Vec<Option<String>>,
+}
+
+impl<'a, T: Clone + 'static> ConversionContext for DescentContext<'a, T> {
+    fn resolve(&self, ident: &str) -> Option<usize> {
+        self.bindings
+            .iter()
+            .rev()
+            .map(|a| a.clone())
+            .chain(self.cursor.context())
+            .position(|binding| binding.unwrap_or_else(|| "".into()) == ident)
+    }
+
+    fn push_binding(&mut self, binding: Option<String>) {
+        self.bindings.push(binding);
+    }
+
+    fn pop_binding(&mut self) {
+        self.bindings.pop();
+    }
+}
+
+impl BasicContext {
+    pub fn new() -> Self {
+        BasicContext { bindings: vec![] }
+    }
+}
+
+impl ConversionContext for BasicContext {
+    fn resolve(&self, ident: &str) -> Option<usize> {
+        self.bindings
+            .iter()
+            .rev()
+            .map(|a| a.clone())
+            .position(|binding| binding.unwrap_or_else(|| "".into()) == ident)
+    }
+
+    fn push_binding(&mut self, binding: Option<String>) {
+        self.bindings.push(binding);
+    }
+
+    fn pop_binding(&mut self) {
+        self.bindings.pop();
+    }
+}
+
+pub trait ConversionContext {
+    fn pop_binding(&mut self);
+    fn push_binding(&mut self, binding: Option<String>);
+    fn resolve(&self, ident: &str) -> Option<usize>;
+}
+
+impl<T: Clone + Zero> AnalysisTerm<T> {
+    fn from_unit_term_and_context<'a, U: ConversionContext>(term: Term<()>, ctx: &mut U) -> Self {
+        match term {
+            Term::Lambda {
+                erased,
+                name,
+                body,
+                annotation,
+            } => {
+                ctx.push_binding(name.clone());
+                let term = AnalysisTerm::Lambda {
+                    erased,
+                    name,
+                    body: Box::new(AnalysisTerm::from_unit_term_and_context(*body, &mut *ctx)),
+                    annotation: T::zero(),
+                };
+                ctx.pop_binding();
+                term
+            }
+            Term::Application {
+                erased,
+                function,
+                argument,
+                annotation,
+            } => {
+                let term = AnalysisTerm::Application {
+                    erased,
+                    function: Box::new(AnalysisTerm::from_unit_term_and_context(
+                        *function, &mut *ctx,
+                    )),
+                    argument: Box::new(AnalysisTerm::from_unit_term_and_context(
+                        *argument, &mut *ctx,
+                    )),
+                    annotation: T::zero(),
+                };
+                term
+            }
+            Term::Put(term, _) => AnalysisTerm::Put(
+                Box::new(AnalysisTerm::from_unit_term_and_context(*term, &mut *ctx)),
+                T::zero(),
+            ),
+            Term::Duplication {
+                binder,
+                expression,
+                body,
+                annotation,
+            } => {
+                let expression = Box::new(AnalysisTerm::from_unit_term_and_context(
+                    *expression,
+                    &mut *ctx,
+                ));
+                ctx.push_binding(binder.clone());
+                let term = AnalysisTerm::Duplication {
+                    binder,
+                    expression,
+                    body: Box::new(AnalysisTerm::from_unit_term_and_context(*body, &mut *ctx)),
+                    annotation: T::zero(),
+                };
+                ctx.pop_binding();
+                term
+            }
+            Term::Reference(r, _) => {
+                if let Some(idx) = ctx.resolve(&r) {
+                    AnalysisTerm::Variable(idx, T::zero())
+                } else {
+                    AnalysisTerm::Reference(r, T::zero())
+                }
+            }
+            Term::Universe(_) => AnalysisTerm::Universe(T::zero()),
+            Term::Function {
+                erased,
+                name,
+                self_name,
+                argument_type,
+                return_type,
+                annotation,
+            } => {
+                let argument_type = Box::new(AnalysisTerm::from_unit_term_and_context(
+                    *argument_type,
+                    &mut *ctx,
+                ));
+                ctx.push_binding(self_name.clone());
+                ctx.push_binding(name.clone());
+                let term = AnalysisTerm::Function {
+                    name,
+                    self_name,
+                    erased,
+                    argument_type,
+                    return_type: Box::new(AnalysisTerm::from_unit_term_and_context(
+                        *return_type,
+                        &mut *ctx,
+                    )),
+                    annotation: T::zero(),
+                };
+                ctx.pop_binding();
+                ctx.pop_binding();
+                term
+            }
+            Term::Wrap(term, _) => AnalysisTerm::Wrap(
+                Box::new(AnalysisTerm::from_unit_term_and_context(*term, &mut *ctx)),
+                T::zero(),
+            ),
+            Term::Hole(_) => AnalysisTerm::Hole(T::zero()),
+            Term::Dynamic(term) => AnalysisTerm::from_unit_term_and_context(
+                term.term().box_clone().expand(),
+                &mut *ctx,
+            ),
+            Term::Compressed(data) => AnalysisTerm::Compressed(data),
         }
     }
 }
@@ -474,6 +667,11 @@ impl<T> From<AnalysisTerm<T>> for term::Term<String> {
                 expression: Box::new((*term).into()),
                 ty: Box::new((*ty).into()),
             },
+            AnalysisTerm::Compressed(term) => {
+                let term = term.expand();
+                AnalysisTerm::<()>::from_unit_term_and_context(term, &mut BasicContext::new())
+                    .into()
+            }
         }
     }
 }

@@ -61,6 +61,9 @@ impl<T> AnalysisTerm<T> {
                 term.shift_top_by(2);
                 return_type.substitute_in(variable + 2, &term, shift);
             }
+            Compressed(_) => {
+                // TODO actual implementation
+            }
         }
     }
 

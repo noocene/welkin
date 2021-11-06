@@ -1,12 +1,17 @@
 use core_futures_io::FuturesCompat;
+use downcast_rs::{impl_downcast, Downcast};
 use futures::{task::noop_waker, Future};
 use mincodec::{
     AsyncReader, AsyncReaderError, AsyncWriter, AsyncWriterError, MinCodec, MinCodecRead,
     MinCodecWrite,
 };
 use std::{
+    any::TypeId,
     cell::RefCell,
+    collections::hash_map::DefaultHasher,
+    convert::TryInto,
     fmt::{self, Debug},
+    hash::{Hash, Hasher},
     rc::Rc,
 };
 pub mod analysis;
@@ -15,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use welkin_core::term::{self, Index};
 
 use self::dynamic::{Dynamic, DynamicTerm};
+
+use super::dynamic::abst::controls::{CompressedSize, CompressedWord, Zero};
 
 #[derive(Debug, Clone, MinCodec, Serialize, Deserialize)]
 #[bounds()]
@@ -102,6 +109,8 @@ impl From<Term<()>> for TermData {
             Term::Wrap(term, _) => TermData::Wrap(Box::new((*term).into())),
             Term::Hole(_) => TermData::Hole,
             Term::Dynamic(data) => TermData::Dynamic(data),
+
+            Term::Compressed(_) => todo!(),
         }
     }
 }
@@ -223,6 +232,8 @@ impl<T: Clone> From<Term<T, RefCount>> for Term<T, System> {
             Term::Hole(annotation) => Term::Hole(annotation),
 
             Term::Dynamic(dynamic) => Term::Dynamic(dynamic),
+
+            Term::Compressed(_) => todo!(),
         }
     }
 }
@@ -291,6 +302,8 @@ impl<T> From<Term<T>> for Term<T, RefCount> {
             Term::Hole(annotation) => Term::Hole(annotation),
 
             Term::Dynamic(dynamic) => Term::Dynamic(dynamic),
+
+            Term::Compressed(_) => todo!(),
         }
     }
 }
@@ -397,6 +410,76 @@ pub enum Term<T = (), A: Allocator<T> = System> {
     Hole(T),
 
     Dynamic(Dynamic<T>),
+
+    Compressed(Box<dyn CompressedTerm<T>>),
+}
+
+pub trait CompressedTerm<T>: Downcast {
+    fn expand(&self) -> Term<T>;
+    fn box_clone(&self) -> Box<dyn CompressedTerm<T>>;
+    fn debug(&self, f: &mut fmt::Formatter) -> fmt::Result;
+    fn to_vec(&self) -> Vec<u8>;
+    fn concrete_ty(&self) -> Option<Term<T>>;
+    fn annotation(&self) -> T;
+    fn hash(&self) -> u64;
+}
+
+impl_downcast!(CompressedTerm<T>);
+
+impl<T> Serialize for Box<dyn CompressedTerm<T>> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Serialize::serialize(&self.to_vec(), serializer)
+    }
+}
+
+impl<T> Hash for Box<dyn CompressedTerm<T>> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        CompressedTerm::hash(&**self).hash(state)
+    }
+}
+
+fn ty_hash<T: 'static>() -> u64 {
+    let mut hasher = DefaultHasher::new();
+    TypeId::of::<T>().hash(&mut hasher);
+    hasher.finish()
+}
+
+impl<'de, T: Zero + Clone> Deserialize<'de> for Box<dyn CompressedTerm<T>> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let buf = <Vec<u8> as Deserialize<'_>>::deserialize(deserializer)?;
+
+        let data = u64::from_be_bytes(buf[..8].try_into().unwrap());
+
+        if data == ty_hash::<CompressedSize>() {
+            Ok(Box::new(
+                bincode::deserialize::<CompressedSize>(&buf[8..]).unwrap(),
+            ))
+        } else if data == ty_hash::<CompressedWord>() {
+            Ok(Box::new(
+                bincode::deserialize::<CompressedWord>(&buf[8..]).unwrap(),
+            ))
+        } else {
+            panic!()
+        }
+    }
+}
+
+impl<T> Clone for Box<dyn CompressedTerm<T>> {
+    fn clone(&self) -> Self {
+        self.box_clone()
+    }
+}
+
+impl<T> Debug for Box<dyn CompressedTerm<T>> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.debug(f)
+    }
 }
 
 impl<T: Clone, A: Allocator<T>> Clone for Term<T, A> {
@@ -456,6 +539,7 @@ impl<T: Clone, A: Allocator<T>> Clone for Term<T, A> {
             Self::Wrap(arg0, arg1) => Self::Wrap(A::clone(arg0), arg1.clone()),
             Self::Hole(arg0) => Self::Hole(arg0.clone()),
             Self::Dynamic(arg0) => Self::Dynamic(arg0.clone()),
+            Self::Compressed(arg0) => Self::Compressed(arg0.clone()),
         }
     }
 }
@@ -531,6 +615,7 @@ impl<T: Debug, A: Allocator<T>> Debug for Term<T, A> {
                 .finish(),
             Self::Hole(arg0) => f.debug_tuple("Hole").field(arg0).finish(),
             Self::Dynamic(arg0) => f.debug_tuple("Dynamic").field(arg0).finish(),
+            Self::Compressed(arg0) => f.debug_tuple("Compressed").field(arg0).finish(),
         }
     }
 }
@@ -595,6 +680,8 @@ impl<T> Term<T> {
                 annotation: (),
                 term: term.clear_annotation(),
             }),
+
+            Term::Compressed(_) => todo!(),
         }
     }
 
@@ -666,6 +753,8 @@ impl<T> Term<T> {
             Term::Hole(annotation) => Term::Hole(f(annotation)?),
 
             Term::Dynamic(Dynamic { .. }) => unimplemented!(),
+
+            Term::Compressed(_) => todo!(),
         })
     }
 }
@@ -917,7 +1006,10 @@ impl<T> LambdaCursor<T> {
         self.name.as_ref().map(|a| a.as_str())
     }
 
-    pub fn body(self) -> Cursor<T> {
+    pub fn body(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.body,
             Path::Lambda {
@@ -929,7 +1021,10 @@ impl<T> LambdaCursor<T> {
         )
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(
             self.up,
             Term::Lambda {
@@ -986,7 +1081,10 @@ impl<T> ApplicationCursor<T> {
         self
     }
 
-    pub fn function(self) -> Cursor<T> {
+    pub fn function(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.function,
             Path::ApplicationFunction {
@@ -998,7 +1096,10 @@ impl<T> ApplicationCursor<T> {
         )
     }
 
-    pub fn argument(self) -> Cursor<T> {
+    pub fn argument(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.argument,
             Path::ApplicationArgument {
@@ -1010,7 +1111,10 @@ impl<T> ApplicationCursor<T> {
         )
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(
             self.up,
             Term::Application {
@@ -1040,7 +1144,10 @@ impl<T> PutCursor<T> {
         &mut self.annotation
     }
 
-    pub fn term(self) -> Cursor<T> {
+    pub fn term(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.term,
             Path::Put {
@@ -1062,7 +1169,10 @@ impl<T> PutCursor<T> {
         }
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(self.up, Term::Put(Box::new(self.term), self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
@@ -1103,7 +1213,10 @@ impl<T> ReferenceCursor<T> {
         &self.name
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(self.up, Term::Reference(self.name, self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
@@ -1131,7 +1244,10 @@ impl<T> DuplicationCursor<T> {
         self.binder.as_ref().map(|a| a.as_str())
     }
 
-    pub fn expression(self) -> Cursor<T> {
+    pub fn expression(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.expression,
             Path::DuplicationExpression {
@@ -1165,7 +1281,10 @@ impl<T> DuplicationCursor<T> {
         self
     }
 
-    pub fn body(self) -> Cursor<T> {
+    pub fn body(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.body,
             Path::DuplicationBody {
@@ -1177,7 +1296,10 @@ impl<T> DuplicationCursor<T> {
         )
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(
             self.up,
             Term::Duplication {
@@ -1206,7 +1328,10 @@ impl<T> UniverseCursor<T> {
         &mut self.annotation
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(self.path, Term::Universe(self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
@@ -1255,7 +1380,10 @@ impl<T> FunctionCursor<T> {
         &mut self.erased
     }
 
-    pub fn argument_type(self) -> Cursor<T> {
+    pub fn argument_type(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.argument_type,
             Path::FunctionArgumentType {
@@ -1289,7 +1417,10 @@ impl<T> FunctionCursor<T> {
         self
     }
 
-    pub fn return_type(self) -> Cursor<T> {
+    pub fn return_type(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.return_type,
             Path::FunctionReturnType {
@@ -1303,7 +1434,10 @@ impl<T> FunctionCursor<T> {
         )
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(
             self.up,
             Term::Function {
@@ -1342,7 +1476,10 @@ impl<T> WrapCursor<T> {
         &mut self.annotation
     }
 
-    pub fn term(self) -> Cursor<T> {
+    pub fn term(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::from_term_and_path(
             self.term,
             Path::Wrap {
@@ -1364,7 +1501,10 @@ impl<T> WrapCursor<T> {
         }
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(self.up, Term::Wrap(Box::new(self.term), self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
@@ -1389,7 +1529,10 @@ impl<T> HoleCursor<T> {
         &mut self.annotation
     }
 
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(self.up, Term::Hole(self.annotation))
             .unwrap_or_else(|(path, term)| Cursor::from_term_and_path(term, path))
     }
@@ -1419,7 +1562,7 @@ pub enum Cursor<T = ()> {
     Dynamic(DynamicCursor<T>),
 }
 
-impl<T> Cursor<T> {
+impl<T: 'static> Cursor<T> {
     pub fn from_term_and_path(term: Term<T>, up: Path<T>) -> Self {
         match term {
             Term::Lambda {
@@ -1502,6 +1645,14 @@ impl<T> Cursor<T> {
                 annotation,
                 up,
             }),
+
+            Term::Compressed(data) => {
+                let any = data.as_any();
+
+                // TODO regenerate literals
+
+                Cursor::from_term_and_path(data.expand(), up)
+            }
         }
     }
 
@@ -1743,7 +1894,7 @@ impl<T> Cursor<T> {
     }
 }
 
-impl<T> From<Term<T>> for Cursor<T> {
+impl<T: 'static> From<Term<T>> for Cursor<T> {
     fn from(term: Term<T>) -> Self {
         Cursor::from_term_and_path(term, Path::Top)
     }
@@ -1755,7 +1906,7 @@ pub struct Context<T> {
     next: Option<Option<String>>,
 }
 
-impl<T: Clone> Iterator for Context<T> {
+impl<T: Clone + 'static> Iterator for Context<T> {
     type Item = Option<String>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1867,7 +2018,7 @@ impl<T> From<Cursor<T>> for Term<T> {
     }
 }
 
-impl<T: Clone> Cursor<T> {
+impl<T: Clone + 'static> Cursor<T> {
     pub fn into_term(self) -> Option<term::Term<String>> {
         let cursor = self;
         Some(match cursor {

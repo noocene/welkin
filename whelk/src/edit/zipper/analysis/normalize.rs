@@ -129,6 +129,9 @@ impl<T> AnalysisTerm<Option<T>> {
                 term.weak_normalize_in_erased(definitions, erase)?;
                 *self = replace(term, AnalysisTerm::Universe(None));
             }
+            Compressed(_) => {
+                // TODO actual normalization
+            }
         }
 
         Ok(())
@@ -212,6 +215,7 @@ impl<T> AnalysisTerm<Option<T>> {
                 term.normalize_in(definitions)?;
                 *self = replace(term, AnalysisTerm::Universe(None));
             }
+            Compressed(_) => todo!(),
         }
 
         Ok(())

@@ -274,7 +274,10 @@ impl<T, U: DynamicTerm<T> + ?Sized> DynamicTerm<T> for Box<U> {
 }
 
 impl<T> DynamicCursor<T> {
-    pub fn ascend(self) -> Cursor<T> {
+    pub fn ascend(self) -> Cursor<T>
+    where
+        T: 'static,
+    {
         Cursor::ascend_helper(
             self.up,
             Term::Dynamic(Dynamic {

@@ -7,6 +7,8 @@ use std::{
 use welkin_core::term::EqualityCache;
 type BumpBox<'a, T> = bumpalo::boxed::Box<'a, T>;
 
+use crate::edit::zipper::analysis::BasicContext;
+
 use super::{normalize::NormalizationError, AnalysisTerm, Definitions, TypedDefinitions};
 
 enum EqualityTree<'a, T> {
@@ -282,6 +284,13 @@ impl<T> AnalysisTerm<Option<T>> {
                             )),
                             o_alloc,
                         )),
+                        (Compressed(a), b) | (b, Compressed(a)) => {
+                            let a = AnalysisTerm::from_unit_term_and_context(
+                                a.expand(),
+                                &mut BasicContext::new(),
+                            );
+                            EqualityTree::Equal(a, b)
+                        }
                         _ => EqualityTree::Leaf(false),
                     };
 

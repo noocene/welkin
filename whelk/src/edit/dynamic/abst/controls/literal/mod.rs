@@ -7,17 +7,22 @@ use crate::edit::{
     zipper::{dynamic::Dynamic, Term},
 };
 
-use super::{ControlData, Literal};
+use super::{ControlData, Invoke};
 
-pub struct Invoke<T: HasInitializedField<String> + HasStatic + ?Sized> {
+mod codegen;
+mod string;
+pub use codegen::*;
+pub use string::*;
+
+pub struct Literal<T: HasInitializedField<String> + HasStatic + ?Sized> {
     field: Option<<T as HasField<String>>::Field>,
     prefix: Option<<T as HasField<Static>>::Field>,
     field_content: String,
 }
 
-impl<T: HasInitializedField<String> + HasStatic + ?Sized> Invoke<T> {
+impl<T: HasInitializedField<String> + HasStatic + ?Sized> Literal<T> {
     pub fn new() -> Self {
-        Invoke {
+        Literal {
             field: None,
             prefix: None,
             field_content: "".into(),
@@ -26,7 +31,7 @@ impl<T: HasInitializedField<String> + HasStatic + ?Sized> Invoke<T> {
 }
 
 impl<T: DynamicContext + HasStatic + Replace + HasInitializedField<String> + ?Sized>
-    AbstractDynamic<T> for Invoke<T>
+    AbstractDynamic<T> for Literal<T>
 where
     <T as HasField<String>>::Field:
         FieldRead<Data = String> + FieldTriggersAppend + FieldTriggersRemove + FieldSetColor,
@@ -35,7 +40,7 @@ where
         let prefix = self
             .prefix
             .get_or_insert_with(|| {
-                let field = <T as HasField<Static>>::create_field(context, Static("~".into()));
+                let field = <T as HasField<Static>>::create_field(context, Static("~lit".into()));
                 context.append_field(field.handle());
                 field
             })
@@ -57,16 +62,17 @@ where
         }
 
         if field.trigger_remove() {
-            context.remove();
+            context.replace(Term::Dynamic(Dynamic::new((), Root::new(Invoke::new()))));
         }
 
         let field = <T as HasField<String>>::field(context, &*f);
 
         if field.trigger_append() {
             if let Some(term) = match self.field_content.as_str() {
-                "lit" | "literal" => {
-                    Some(Term::Dynamic(Dynamic::new((), Root::new(Literal::new()))))
-                }
+                "String" => Some(Term::Dynamic(Dynamic::new(
+                    (),
+                    Root::new(StringLiteral::new()),
+                ))),
                 _ => None,
             } {
                 context.replace(term);
@@ -79,6 +85,6 @@ where
     }
 
     fn encode(&self) -> ControlData {
-        ControlData::Invoke
+        ControlData::Literal
     }
 }

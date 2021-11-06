@@ -790,6 +790,8 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>, editable: bool) -> Term<UiS
 
             Term::Dynamic(Dynamic::new(annotation, term))
         }
+
+        Term::Compressed(_) => todo!(),
     }
 }
 

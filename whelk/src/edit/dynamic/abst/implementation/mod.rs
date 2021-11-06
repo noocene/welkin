@@ -15,7 +15,7 @@ use crate::edit::{
     DynamicVariance, UiSection, UiSectionVariance,
 };
 
-use super::{AbstractDynamic, Color, DynamicContext};
+use super::{AbstractDynamic, Color, DynamicContext, Replace};
 
 pub enum HasFocus {
     Element(Element),
@@ -116,6 +116,15 @@ impl DynamicVariance for RootVariance {
             }
             .clone(),
         )
+    }
+}
+
+impl Replace for RootContext {
+    fn replace(&mut self, term: Term<()>) {
+        self.container.remove();
+        if self.is_root {
+            *self.needs_remove.borrow_mut() = Some(term);
+        }
     }
 }
 

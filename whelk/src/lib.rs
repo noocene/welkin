@@ -341,7 +341,10 @@ async fn add_scratchpad(
         {
             let pads = pads.clone();
             move |_| {
-                save(pads.clone());
+                let pads = pads.clone();
+                spawn_local(async move {
+                    save(pads);
+                });
             }
         },
     )
@@ -605,7 +608,11 @@ async fn add_scratchpad(
 
                                     let evaluator = Substitution(defs.clone());
 
+                                    console_log!("a");
+
                                     if let Some(term) = conv_term {
+                                        console_log!("b");
+
                                         let term = evaluator.evaluate(term).unwrap();
 
                                         let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
