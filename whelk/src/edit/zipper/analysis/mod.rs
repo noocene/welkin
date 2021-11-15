@@ -9,7 +9,10 @@ mod normalize;
 mod shift;
 mod substitute;
 
-use std::marker::PhantomData;
+use std::{
+    fmt::{self, Debug},
+    marker::PhantomData,
+};
 
 use derivative::Derivative;
 use welkin_core::term::{self, Index};
@@ -74,7 +77,7 @@ impl<'a, U: Clone, T: TypedDefinitions<U>> term::TypedDefinitions<String> for De
     }
 }
 
-#[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
+#[derive(Derivative, Clone, Serialize, Deserialize)]
 #[derivative(Hash(bound = ""))]
 pub enum AnalysisTerm<T> {
     Lambda {
@@ -122,6 +125,75 @@ pub enum AnalysisTerm<T> {
         ty: Box<AnalysisTerm<T>>,
     },
     Compressed(Box<dyn CompressedTerm<()>>),
+}
+
+impl<T: Debug> Debug for AnalysisTerm<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use AnalysisTerm::*;
+
+        match &self {
+            Variable(idx, _) => write!(f, "^{}", idx),
+            Lambda {
+                body, name, erased, ..
+            } => write!(
+                f,
+                "{}{} {:?}",
+                if *erased { "/" } else { "\\" },
+                name.as_ref().map(String::as_str).unwrap_or(""),
+                body
+            ),
+            Application {
+                function,
+                argument,
+                erased,
+                ..
+            } => write!(
+                f,
+                "{}{:?} {:?}{}",
+                if *erased { "[" } else { "(" },
+                function,
+                argument,
+                if *erased { "]" } else { ")" }
+            ),
+            Put(term, _) => write!(f, ". {:?}", term),
+            Reference(name, _) => name.fmt(f),
+            Duplication {
+                expression,
+                body,
+                binder,
+                ..
+            } => write!(
+                f,
+                ": {} = {:?} {:?}",
+                binder.as_ref().map(String::as_str).unwrap_or(""),
+                expression,
+                body
+            ),
+
+            Universe(_) => write!(f, "*"),
+            Wrap(term, _) => write!(f, "!{:?}", term),
+            Function {
+                argument_type,
+                return_type,
+                erased,
+                name,
+                self_name,
+                ..
+            } => write!(
+                f,
+                "{}{},{}:{:?} {:?}",
+                if *erased { "_" } else { "+" },
+                self_name.as_ref().map(String::as_str).unwrap_or(""),
+                name.as_ref().map(String::as_str).unwrap_or(""),
+                argument_type,
+                return_type
+            ),
+
+            Hole(_) => write!(f, "?"),
+            Compressed(_) => write!(f, "COMPRESSED"),
+            Annotation { term, ty, .. } => write!(f, "{{ {:?} : {:?} }}", term, ty),
+        }
+    }
 }
 
 impl<T: Zero + Clone> From<AnalysisTerm<T>> for Term<T> {
@@ -213,7 +285,7 @@ impl<T> AnalysisTerm<Option<T>> {
             } => annotation.as_ref().clone(),
             AnalysisTerm::Wrap(_, annotation) => annotation.as_ref().clone(),
             AnalysisTerm::Hole(annotation) => annotation.as_ref().clone(),
-            AnalysisTerm::Annotation { .. } => None,
+            AnalysisTerm::Annotation { term, .. } => term.annotation(),
             AnalysisTerm::Compressed(_) => None,
         }
     }

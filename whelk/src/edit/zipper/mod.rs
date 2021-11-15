@@ -416,6 +416,80 @@ pub enum Term<T = (), A: Allocator<T> = System> {
     Compressed(Box<dyn CompressedTerm<T>>),
 }
 
+impl<T: Debug, A: Allocator<T>> Term<T, A> {
+    fn write(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Term::*;
+
+        match &self {
+            Lambda {
+                body, name, erased, ..
+            } => write!(
+                f,
+                "{}{} {:?}",
+                if *erased { "/" } else { "\\" },
+                name.as_ref().map(String::as_str).unwrap_or(""),
+                DebugWrapper::<T, A>(body)
+            ),
+            Application {
+                function,
+                argument,
+                erased,
+                ..
+            } => write!(
+                f,
+                "{}{:?} {:?}{}",
+                if *erased { "[" } else { "(" },
+                DebugWrapper::<T, A>(function),
+                DebugWrapper::<T, A>(argument),
+                if *erased { "]" } else { ")" }
+            ),
+            Put(term, _) => write!(f, ". {:?}", DebugWrapper::<T, A>(term)),
+            Reference(name, _) => name.fmt(f),
+            Duplication {
+                expression,
+                body,
+                binder,
+                ..
+            } => write!(
+                f,
+                ": {} = {:?} {:?}",
+                binder.as_ref().map(String::as_str).unwrap_or(""),
+                DebugWrapper::<T, A>(expression),
+                DebugWrapper::<T, A>(body)
+            ),
+
+            Universe(_) => write!(f, "*"),
+            Wrap(term, _) => write!(f, "!{:?}", DebugWrapper::<T, A>(term)),
+            Function {
+                argument_type,
+                return_type,
+                erased,
+                name,
+                self_name,
+                ..
+            } => write!(
+                f,
+                "{}{},{}:{:?} {:?}",
+                if *erased { "_" } else { "+" },
+                self_name.as_ref().map(String::as_str).unwrap_or(""),
+                name.as_ref().map(String::as_str).unwrap_or(""),
+                DebugWrapper::<T, A>(argument_type),
+                DebugWrapper::<T, A>(return_type)
+            ),
+
+            Hole(_) => write!(f, "?"),
+            Dynamic(_) => write!(f, "DYNAMIC"),
+            Compressed(_) => write!(f, "COMPRESSED"),
+        }
+    }
+}
+
+impl<T: Debug, A: Allocator<T>> Debug for Term<T, A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.write(f)
+    }
+}
+
 pub trait CompressedTerm<T>: Downcast {
     fn expand(&self) -> Term<T>;
     fn box_clone(&self) -> Box<dyn CompressedTerm<T>>;
@@ -550,82 +624,6 @@ impl<T: Clone, A: Allocator<T>> Clone for Term<T, A> {
             Self::Hole(arg0) => Self::Hole(arg0.clone()),
             Self::Dynamic(arg0) => Self::Dynamic(arg0.clone()),
             Self::Compressed(arg0) => Self::Compressed(arg0.clone()),
-        }
-    }
-}
-
-impl<T: Debug, A: Allocator<T>> Debug for Term<T, A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Lambda {
-                erased,
-                name,
-                body,
-                annotation,
-            } => f
-                .debug_struct("Lambda")
-                .field("erased", erased)
-                .field("name", name)
-                .field("body", &DebugWrapper::<T, A>(body))
-                .field("annotation", annotation)
-                .finish(),
-            Self::Application {
-                erased,
-                function,
-                argument,
-                annotation,
-            } => f
-                .debug_struct("Application")
-                .field("erased", erased)
-                .field("function", &DebugWrapper::<T, A>(function))
-                .field("argument", &DebugWrapper::<T, A>(argument))
-                .field("annotation", annotation)
-                .finish(),
-            Self::Put(arg0, arg1) => f
-                .debug_tuple("Put")
-                .field(&DebugWrapper::<T, A>(arg0))
-                .field(arg1)
-                .finish(),
-            Self::Duplication {
-                binder,
-                expression,
-                body,
-                annotation,
-            } => f
-                .debug_struct("Duplication")
-                .field("binder", binder)
-                .field("expression", &DebugWrapper::<T, A>(expression))
-                .field("body", &DebugWrapper::<T, A>(body))
-                .field("annotation", annotation)
-                .finish(),
-            Self::Reference(arg0, arg1) => {
-                f.debug_tuple("Reference").field(arg0).field(arg1).finish()
-            }
-            Self::Universe(arg0) => f.debug_tuple("Universe").field(arg0).finish(),
-            Self::Function {
-                erased,
-                name,
-                self_name,
-                argument_type,
-                return_type,
-                annotation,
-            } => f
-                .debug_struct("Function")
-                .field("erased", erased)
-                .field("name", name)
-                .field("self_name", self_name)
-                .field("argument_type", &DebugWrapper::<T, A>(argument_type))
-                .field("return_type", &DebugWrapper::<T, A>(return_type))
-                .field("annotation", annotation)
-                .finish(),
-            Self::Wrap(arg0, arg1) => f
-                .debug_tuple("Wrap")
-                .field(&DebugWrapper::<T, A>(arg0))
-                .field(arg1)
-                .finish(),
-            Self::Hole(arg0) => f.debug_tuple("Hole").field(arg0).finish(),
-            Self::Dynamic(arg0) => f.debug_tuple("Dynamic").field(arg0).finish(),
-            Self::Compressed(arg0) => f.debug_tuple("Compressed").field(arg0).finish(),
         }
     }
 }

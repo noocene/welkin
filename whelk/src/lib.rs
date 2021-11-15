@@ -230,22 +230,14 @@ fn push_paragraph(data: Block, container: &Element) {
                     expected,
                     got,
                     annotation,
-                } if annotation.is_some() => {
-                    let annotation = annotation.unwrap();
+                } => {
                     let el1 = document.create_element("span").unwrap();
                     el1.class_list().add_1("inline-pad").unwrap();
                     if expected.no_variables() {
                         let data: zipper::Term<()> = expected.clear_annotation().into();
                         static_scratchpad(data, el1.clone().into());
                     } else {
-                        if expected.is_complete() {
-                            el1.set_text_content(Some(&format!(
-                                "{:?}",
-                                welkin_core::term::Term::from(expected)
-                            )));
-                        } else {
-                            el1.set_text_content(Some(&format!("{:?}", expected)));
-                        }
+                        el1.set_text_content(Some(&format!("{:?}", expected)));
                     };
                     let el2 = document.create_element("span").unwrap();
                     el2.class_list().add_1("inline-pad").unwrap();
@@ -253,21 +245,16 @@ fn push_paragraph(data: Block, container: &Element) {
                         let data: zipper::Term<()> = got.clear_annotation().into();
                         static_scratchpad(data, el2.clone().into());
                     } else {
-                        if got.is_complete() {
-                            el2.set_text_content(Some(&format!(
-                                "{:?}",
-                                welkin_core::term::Term::from(got)
-                            )));
-                        } else {
-                            el2.set_text_content(Some(&format!("{:?}", got)));
-                        }
+                        el2.set_text_content(Some(&format!("{:?}", got)));
                     };
                     paragraph.set_text_content(Some("type error\nexpected "));
                     paragraph.append_child(&el1).unwrap();
                     let mid = document.create_text_node("\n     got ");
                     paragraph.append_child(&mid).unwrap();
                     paragraph.append_child(&el2).unwrap();
-                    annotation.show_error();
+                    if let Some(annotation) = annotation {
+                        annotation.show_error();
+                    }
                 }
                 AnalysisError::ErasureMismatch {
                     lambda,
