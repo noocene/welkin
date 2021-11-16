@@ -15,6 +15,10 @@ pub trait FieldRead: Field {
     type Data;
 }
 
+pub trait FieldFilter: Field {
+    type Element;
+}
+
 pub trait FieldFocus: Field {}
 
 pub trait FieldTriggersRemove: Field {}
@@ -36,6 +40,13 @@ pub trait FieldContext<T: Field> {
     fn read(&self) -> Option<T::Data>
     where
         T: FieldRead,
+    {
+        todo!()
+    }
+
+    fn set_filter(&self, predicate: Box<dyn Fn(T::Element) -> bool>)
+    where
+        T: FieldFilter,
     {
         todo!()
     }

@@ -43,7 +43,8 @@ web-sys = { version = "0.3.51", features = [
     "Storage",
     "Worker",
     "Performance",
-    "DedicatedWorkerGlobalScope"
+    "DedicatedWorkerGlobalScope",
+    "InputEvent"
   ] }
 welkin-core = { git = "https://github.com/noocene/welkin-core", branch = "main" }
 welkin = { path = "../" }

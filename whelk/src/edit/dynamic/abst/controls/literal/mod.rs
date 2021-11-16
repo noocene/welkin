@@ -10,8 +10,10 @@ use crate::edit::{
 use super::{ControlData, Invoke};
 
 mod codegen;
+mod size;
 mod string;
 pub use codegen::*;
+pub use size::*;
 pub use string::*;
 
 pub struct Literal<T: HasInitializedField<String> + HasStatic + ?Sized> {
@@ -72,6 +74,10 @@ where
                 "String" => Some(Term::Dynamic(Dynamic::new(
                     (),
                     Root::new(StringLiteral::new()),
+                ))),
+                "Size" => Some(Term::Dynamic(Dynamic::new(
+                    (),
+                    Root::new(SizeLiteral::new()),
                 ))),
                 _ => None,
             } {

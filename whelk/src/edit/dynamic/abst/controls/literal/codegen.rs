@@ -100,7 +100,7 @@ pub struct CompressedSize {
 }
 
 impl CompressedSize {
-    fn new(size: usize) -> CompressedSize {
+    pub fn new(size: usize) -> CompressedSize {
         CompressedSize { size }
     }
 }

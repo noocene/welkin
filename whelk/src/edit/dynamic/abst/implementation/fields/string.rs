@@ -4,7 +4,7 @@ use js_sys::Array;
 use uuid::Uuid;
 use wasm_bindgen::{prelude::Closure, JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{Element, KeyboardEvent};
+use web_sys::{Element, InputEvent, KeyboardEvent};
 
 use crate::edit::{
     configure_contenteditable,
@@ -12,8 +12,8 @@ use crate::edit::{
         implementation::{
             color_to_class, fields::RootFieldData, HasFocus, RootContext, RootHandle, COLORS,
         },
-        Color, Field, FieldContext, FieldFocus, FieldRead, FieldSetColor, FieldTriggersAppend,
-        FieldTriggersRemove, HasField, HasInitializedField,
+        Color, Field, FieldContext, FieldFilter, FieldFocus, FieldRead, FieldSetColor,
+        FieldTriggersAppend, FieldTriggersRemove, HasField, HasInitializedField,
     },
     focus_contenteditable,
 };
@@ -27,6 +27,7 @@ pub struct RootStringFieldContextData {
     triggers_remove: Rc<RefCell<bool>>,
     triggers_append: Rc<RefCell<bool>>,
     update: Rc<RefCell<Option<String>>>,
+    filter: Rc<RefCell<Box<dyn Fn(char) -> bool>>>,
 }
 
 impl RootStringFieldContextData {
@@ -46,6 +47,10 @@ impl FieldTriggersRemove for RootStringField {}
 impl FieldTriggersAppend for RootStringField {}
 
 impl FieldFocus for RootStringField {}
+
+impl FieldFilter for RootStringField {
+    type Element = char;
+}
 
 impl FieldRead for RootStringField {
     type Data = String;
@@ -84,6 +89,10 @@ impl FieldContext<RootStringField> for RootFieldContext<RootStringField> {
         spawn_local(async move {
             focus_contenteditable(&element, true);
         });
+    }
+
+    fn set_filter(&self, predicate: Box<dyn Fn(char) -> bool>) {
+        *self.data.filter.borrow_mut() = predicate;
     }
 }
 
@@ -172,12 +181,21 @@ impl HasField<String> for RootContext {
         span.add_event_listener_with_callback("focus", focus_closure.as_ref().unchecked_ref())
             .unwrap();
 
+        let filter: Rc<RefCell<Box<dyn Fn(char) -> bool>>> =
+            Rc::new(RefCell::new(Box::new(|_| true)));
+
         let input_closure = Closure::wrap(Box::new({
             let span = span.clone();
             let sender = RefCell::new(sender.clone());
             let update = update.clone();
-            move |_| {
-                *update.borrow_mut() = Some(span.text_content().unwrap_or(String::new()));
+            let filter = filter.clone();
+            move |e: JsValue| {
+                let e: InputEvent = e.dyn_into().unwrap();
+                let filter = &**filter.borrow();
+                let mut text_content = span.text_content().unwrap_or(String::new());
+                text_content = text_content.chars().filter(|char| filter(*char)).collect();
+                span.set_text_content(Some(&text_content));
+                *update.borrow_mut() = Some(text_content);
                 let _ = sender.borrow_mut().try_send(());
             }
         }) as Box<dyn FnMut(JsValue)>);
@@ -195,6 +213,7 @@ impl HasField<String> for RootContext {
                         update,
                         triggers_remove,
                         triggers_append,
+                        filter,
                     },
                 },
             },

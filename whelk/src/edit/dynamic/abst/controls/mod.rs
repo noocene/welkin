@@ -8,7 +8,7 @@ pub use literal::*;
 use mincodec::MinCodec;
 
 use super::{
-    AbstractDynamic, Container, DynamicContext, FieldFocus, FieldRead, FieldSetColor,
+    AbstractDynamic, Container, DynamicContext, FieldFilter, FieldFocus, FieldRead, FieldSetColor,
     FieldTriggersAppend, FieldTriggersRemove, HasContainer, HasField, HasInitializedField,
     HasStatic, Replace, Static, VStack, Wrapper,
 };
@@ -19,12 +19,13 @@ pub enum ControlData {
     Literal,
     Invoke,
     StringLiteral(String),
+    SizeLiteral(usize),
 }
 
 impl ControlData {
     pub fn to_control<T: DynamicContext + Replace + HasStatic + HasContainer<VStack> + HasInitializedField<String> + ?Sized + 'static>(self) -> Box<dyn AbstractDynamic<T>>
         where
-            <T as HasField<String>>::Field: FieldRead<Data = String> + FieldSetColor + FieldTriggersAppend + FieldTriggersRemove,
+            <T as HasField<String>>::Field: FieldRead<Data = String> + FieldSetColor + FieldFilter<Element = char> + FieldTriggersAppend + FieldTriggersRemove,
             <T as HasField<Static>>::Field: FieldSetColor,
             <T as HasField<VStack>>::Field: Container,
             <<T as HasField<VStack>>::Field as Container>::Context: HasContainer<Wrapper>,
@@ -39,6 +40,7 @@ impl ControlData {
             ControlData::Invoke => Box::new(Invoke::new()),
             ControlData::Literal => Box::new(Literal::new()),
             ControlData::StringLiteral(data) => Box::new(StringLiteral::from(data)),
+            ControlData::SizeLiteral(size) => Box::new(SizeLiteral::from(size)),
         }
     }
 }
