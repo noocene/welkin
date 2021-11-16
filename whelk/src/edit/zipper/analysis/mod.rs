@@ -9,6 +9,8 @@ mod normalize;
 mod shift;
 mod substitute;
 
+pub use normalize::NormalizationError;
+
 use std::{
     fmt::{self, Debug},
     marker::PhantomData,
@@ -748,17 +750,17 @@ impl<T> From<AnalysisTerm<T>> for term::Term<String> {
     }
 }
 
-impl<T> From<term::Term<String>> for AnalysisTerm<Option<T>> {
+impl<T: Zero> From<term::Term<String>> for AnalysisTerm<T> {
     fn from(term: term::Term<String>) -> Self {
         match term {
             term::Term::Lambda { erased, body } => AnalysisTerm::Lambda {
                 erased,
                 body: Box::new((*body).into()),
-                annotation: None,
+                annotation: T::zero(),
                 name: None,
             },
 
-            term::Term::Variable(Index(idx)) => AnalysisTerm::Variable(idx, None),
+            term::Term::Variable(Index(idx)) => AnalysisTerm::Variable(idx, T::zero()),
 
             term::Term::Apply {
                 erased,
@@ -768,21 +770,21 @@ impl<T> From<term::Term<String>> for AnalysisTerm<Option<T>> {
                 erased,
                 function: Box::new((*function).into()),
                 argument: Box::new((*argument).into()),
-                annotation: None,
+                annotation: T::zero(),
             },
 
-            term::Term::Put(term) => AnalysisTerm::Put(Box::new((*term).into()), None),
+            term::Term::Put(term) => AnalysisTerm::Put(Box::new((*term).into()), T::zero()),
 
             term::Term::Duplicate { expression, body } => AnalysisTerm::Duplication {
                 expression: Box::new((*expression).into()),
                 body: Box::new((*body).into()),
-                annotation: None,
+                annotation: T::zero(),
                 binder: None,
             },
 
-            term::Term::Reference(r) => AnalysisTerm::Reference(r, None),
+            term::Term::Reference(r) => AnalysisTerm::Reference(r, T::zero()),
 
-            term::Term::Universe => AnalysisTerm::Universe(None),
+            term::Term::Universe => AnalysisTerm::Universe(T::zero()),
 
             term::Term::Function {
                 erased,
@@ -792,12 +794,12 @@ impl<T> From<term::Term<String>> for AnalysisTerm<Option<T>> {
                 erased,
                 argument_type: Box::new((*argument_type).into()),
                 return_type: Box::new((*return_type).into()),
-                annotation: None,
+                annotation: T::zero(),
                 self_name: None,
                 name: None,
             },
 
-            term::Term::Wrap(term) => AnalysisTerm::Wrap(Box::new((*term).into()), None),
+            term::Term::Wrap(term) => AnalysisTerm::Wrap(Box::new((*term).into()), T::zero()),
 
             term::Term::Annotation {
                 checked,

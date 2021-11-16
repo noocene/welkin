@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::edit::zipper::{CompressedTerm, Term};
 
-#[derive(Serialize, Deserialize, Clone, Hash)]
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct CompressedWord {
     data: Vec<bool>,
 }
@@ -92,9 +92,17 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedWord {
         Hash::hash(self, &mut hasher);
         hasher.finish()
     }
+
+    fn partial_eq(&self, other: &dyn CompressedTerm<T>) -> Option<bool> {
+        if let Some(other) = other.as_any().downcast_ref::<Self>() {
+            Some(other == self)
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone, Hash)]
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct CompressedSize {
     size: usize,
 }
@@ -170,9 +178,17 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedSize {
         Hash::hash(self, &mut hasher);
         hasher.finish()
     }
+
+    fn partial_eq(&self, other: &dyn CompressedTerm<T>) -> Option<bool> {
+        if let Some(other) = other.as_any().downcast_ref::<Self>() {
+            Some(other == self)
+        } else {
+            None
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone, Hash)]
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct CompressedChar {
     char: char,
 }
@@ -234,6 +250,14 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedChar {
         Hash::hash(self, &mut hasher);
         hasher.finish()
     }
+
+    fn partial_eq(&self, other: &dyn CompressedTerm<T>) -> Option<bool> {
+        if let Some(other) = other.as_any().downcast_ref::<Self>() {
+            Some(other == self)
+        } else {
+            None
+        }
+    }
 }
 
 pub fn make_vector<T: Zero + Clone>(ty: Term<T>, data: Vec<Term<T>>) -> Term<T> {
@@ -281,7 +305,7 @@ pub fn make_vector<T: Zero + Clone>(ty: Term<T>, data: Vec<Term<T>>) -> Term<T> 
     term
 }
 
-#[derive(Serialize, Deserialize, Clone, Hash)]
+#[derive(Serialize, Deserialize, Clone, Hash, PartialEq, Eq)]
 pub struct CompressedString {
     data: String,
 }
@@ -350,5 +374,13 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedString {
         let mut hasher = DefaultHasher::new();
         Hash::hash(self, &mut hasher);
         hasher.finish()
+    }
+
+    fn partial_eq(&self, other: &dyn CompressedTerm<T>) -> Option<bool> {
+        if let Some(other) = other.as_any().downcast_ref::<Self>() {
+            Some(other == self)
+        } else {
+            None
+        }
     }
 }

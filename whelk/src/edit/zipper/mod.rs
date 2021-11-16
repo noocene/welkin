@@ -498,6 +498,7 @@ pub trait CompressedTerm<T>: Downcast {
     fn concrete_ty(&self) -> Option<Term<T>>;
     fn annotation(&self) -> T;
     fn hash(&self) -> u64;
+    fn partial_eq(&self, other: &dyn CompressedTerm<T>) -> Option<bool>;
 }
 
 impl_downcast!(CompressedTerm<T>);

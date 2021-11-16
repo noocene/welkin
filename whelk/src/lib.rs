@@ -8,6 +8,7 @@ use std::{cell::RefCell, collections::HashMap, error::Error, mem::replace, panic
 use async_recursion::async_recursion;
 use bindings::{io::iter::LoopRequest, w};
 use edit::{
+    dynamic::abst::controls::Zero,
     zipper::{
         self,
         analysis::{self, AnalysisError, AnalysisTerm},
@@ -15,7 +16,7 @@ use edit::{
     },
     Scratchpad, UiSection,
 };
-use evaluator::{Evaluator, Substitution};
+use evaluator::{CoreEvaluator, Evaluator, Substitution};
 use futures::{
     channel::{
         mpsc::{channel, Receiver, Sender},
@@ -602,11 +603,18 @@ async fn add_scratchpad(
                                     if term.is_complete() {
                                         let time = perf.now();
 
-                                        let term = evaluator
-                                            .evaluate(term.clear_annotation().into())
-                                            .unwrap();
+                                        let term = <_ as Evaluator<_>>::evaluate(
+                                            &evaluator,
+                                            term.clear_annotation(),
+                                        )
+                                        .unwrap();
 
-                                        let whelk = w::Whelk::from_welkin(term.clone()).unwrap();
+                                        let whelk = {
+                                            let mut term = term.clone().into();
+                                            term = <_ as CoreEvaluator>::evaluate(&evaluator, term)
+                                                .unwrap();
+                                            w::Whelk::from_welkin(term).unwrap()
+                                        };
 
                                         let io = match whelk {
                                             w::Whelk::new { data } => match data {
@@ -681,12 +689,11 @@ impl From<DefWrapperData> for DefWrapper {
     }
 }
 
-impl<T> analysis::TypedDefinitions<Option<T>> for DefWrapper {
+impl<T: Zero> analysis::TypedDefinitions<T> for DefWrapper {
     fn get_typed(
         &self,
         name: &str,
-    ) -> Option<analysis::DefinitionResult<(AnalysisTerm<Option<T>>, AnalysisTerm<Option<T>>)>>
-    {
+    ) -> Option<analysis::DefinitionResult<(AnalysisTerm<T>, AnalysisTerm<T>)>> {
         TypedDefinitions::get_typed(self, &name.to_owned()).map(|defs| match defs {
             DefinitionResult::Borrowed((ty, term)) => {
                 analysis::DefinitionResult::Owned((ty.clone().into(), term.clone().into()))
@@ -853,7 +860,7 @@ async fn make_scratchpad(
 async fn run_io<
     F: Fn(Block),
     R: Stream<Item = String> + Unpin,
-    E: Evaluator + 'static,
+    E: CoreEvaluator + 'static,
     D: Clone + FromAnalogue + 'static,
 >(
     mut io: w::WhelkIO<D>,

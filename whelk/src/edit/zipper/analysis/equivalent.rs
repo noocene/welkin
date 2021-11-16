@@ -185,6 +185,11 @@ impl<T> AnalysisTerm<Option<T>> {
                             fill_hole(annotation.as_ref().clone(), a);
                             ret_a = Some(EqualityTree::Leaf(true));
                         }
+                        (Compressed(a), Compressed(b)) => {
+                            if let Some(eq) = a.partial_eq(b.as_ref()) {
+                                ret_a = Some(EqualityTree::Leaf(eq));
+                            }
+                        }
                         _ => {}
                     }
 
@@ -284,6 +289,21 @@ impl<T> AnalysisTerm<Option<T>> {
                             )),
                             o_alloc,
                         )),
+                        (Compressed(a), Compressed(b)) => {
+                            if let Some(eq) = a.partial_eq(b.as_ref()) {
+                                EqualityTree::Leaf(eq)
+                            } else {
+                                let a = AnalysisTerm::from_unit_term_and_context(
+                                    a.expand(),
+                                    &mut BasicContext::new(),
+                                );
+                                let b = AnalysisTerm::from_unit_term_and_context(
+                                    b.expand(),
+                                    &mut BasicContext::new(),
+                                );
+                                EqualityTree::Equal(a, b)
+                            }
+                        }
                         (Compressed(a), b) | (b, Compressed(a)) => {
                             let a = AnalysisTerm::from_unit_term_and_context(
                                 a.expand(),

@@ -1,8 +1,16 @@
-use welkin_core::term::Term;
 mod substitution;
 pub use substitution::Substitution;
+use welkin_core::term::Term;
 
-pub trait Evaluator {
+use crate::edit::zipper::analysis::AnalysisTerm;
+
+pub trait Evaluator<T> {
+    type Error;
+
+    fn evaluate(&self, term: AnalysisTerm<T>) -> Result<AnalysisTerm<T>, Self::Error>;
+}
+
+pub trait CoreEvaluator {
     type Error;
 
     fn evaluate(&self, term: Term<String>) -> Result<Term<String>, Self::Error>;

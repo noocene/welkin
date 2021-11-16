@@ -8,7 +8,7 @@ use welkin_binding::{FromAnalogue, FromWelkin};
 
 use welkin_core::term::Term;
 
-use crate::evaluator::Evaluator;
+use crate::evaluator::CoreEvaluator;
 
 #[derive(Clone, Debug)]
 pub struct IoRequest<G, T> {
@@ -22,13 +22,13 @@ pub struct IoRequest<G, T> {
     bound = "<<G as FromAnalogue>::Analogue as FromWelkin>::Error: std::fmt::Debug, <<T as FromAnalogue>::Analogue as FromWelkin>::Error: std::fmt::Debug, E::Error: std::fmt::Debug"
 ))]
 #[error("fulfillment error")]
-pub enum FulfillmentError<G: FromAnalogue, T: FromAnalogue, E: Evaluator> {
+pub enum FulfillmentError<G: FromAnalogue, T: FromAnalogue, E: CoreEvaluator> {
     Evaluator(E::Error),
     Io(<w::IO<G, T> as FromWelkin>::Error),
 }
 
 impl<G: FromAnalogue, T: FromAnalogue> IoRequest<G, T> {
-    pub fn fulfill<E: Evaluator>(
+    pub fn fulfill<E: CoreEvaluator>(
         self,
         response: Term<String>,
         evaluator: &E,

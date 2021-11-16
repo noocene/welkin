@@ -1,6 +1,6 @@
 use std::pin::Pin;
 
-use crate::{bindings::w, evaluator::Evaluator};
+use crate::{bindings::w, evaluator::CoreEvaluator};
 use futures::Future;
 use thiserror::Error;
 use welkin_binding::{FromWelkin, ToWelkin};
@@ -39,7 +39,7 @@ impl LoopRequest {
         }
     }
 
-    pub fn proceed<E: Evaluator>(&self, evaluator: &E) -> Result<bool, ProceedError<E::Error>> {
+    pub fn proceed<E: CoreEvaluator>(&self, evaluator: &E) -> Result<bool, ProceedError<E::Error>> {
         evaluator
             .evaluate(Term::Apply {
                 erased: false,
@@ -61,7 +61,7 @@ impl LoopRequest {
     }
     pub fn step<
         'a,
-        E: Evaluator,
+        E: CoreEvaluator,
         T,
         Fut: Future<Output = Result<w::Any, T>>,
         F: FnOnce(w::WhelkIO<w::Any>) -> Fut + 'a,

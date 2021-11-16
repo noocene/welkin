@@ -2,12 +2,97 @@ use std::mem::replace;
 
 use serde::{Deserialize, Serialize};
 
+use crate::edit::dynamic::abst::controls::Zero;
+
+use std::fmt::Debug;
+
 use super::{AnalysisTerm, Definitions};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum NormalizationError {
     InvalidDuplication,
     InvalidApplication,
+}
+
+impl<T: Zero> AnalysisTerm<T> {
+    pub fn normalize_in<U: Definitions<T>>(
+        &mut self,
+        definitions: &U,
+    ) -> Result<(), NormalizationError>
+    where
+        T: Clone + Debug,
+    {
+        use AnalysisTerm::*;
+
+        match self {
+            Reference(binding, _) => {
+                if let Some(term) = definitions.get(binding).map(|term| {
+                    let mut term = term.as_ref().clone();
+                    term.normalize_in(definitions)?;
+                    Ok(term)
+                }) {
+                    *self = term?;
+                }
+            }
+            Lambda { body, erased, .. } => {
+                body.normalize_in(definitions)?;
+                if *erased {
+                    body.substitute_top_in(&AnalysisTerm::Variable(0, T::zero()));
+                    *self = replace(&mut *body, Universe(T::zero()));
+                }
+            }
+            Put(term, _) => {
+                term.normalize_in(definitions)?;
+                *self = replace(term, AnalysisTerm::Universe(T::zero()));
+            }
+            Duplication {
+                body, expression, ..
+            } => {
+                body.substitute_top_in(expression);
+                body.normalize_in(definitions)?;
+                *self = replace(body, AnalysisTerm::Universe(T::zero()));
+            }
+            Application {
+                function,
+                argument,
+                erased,
+                ..
+            } => {
+                function.normalize_in(definitions)?;
+                let function = *function.clone();
+                if *erased {
+                    *self = function;
+                } else {
+                    match function {
+                        Put(_, _) => Err(NormalizationError::InvalidApplication)?,
+                        Lambda { mut body, .. } => {
+                            body.substitute_top_in(argument);
+                            body.normalize_in(definitions)?;
+
+                            *self = *body;
+                        }
+                        _ => {
+                            argument.normalize_in(definitions)?;
+                        }
+                    }
+                }
+            }
+            Variable(_, _) | Universe(_) | Wrap(_, _) | Function { .. } | Hole(_) => {}
+
+            Annotation { term, .. } => {
+                term.normalize_in(definitions)?;
+                *self = replace(term, AnalysisTerm::Universe(T::zero()));
+            }
+            Compressed(data) => {
+                // let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
+                // let data: AnalysisTerm<Option<()>> = data.into();
+                // *self = data.map_annotation(&mut |data| T::zero());
+                // self.normalize_in(definitions)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl<T> AnalysisTerm<Option<T>> {
@@ -145,79 +230,5 @@ impl<T> AnalysisTerm<Option<T>> {
         T: Clone,
     {
         self.weak_normalize_in_erased(definitions, false)
-    }
-
-    pub fn normalize_in<U: Definitions<Option<T>>>(
-        &mut self,
-        definitions: &U,
-    ) -> Result<(), NormalizationError>
-    where
-        T: Clone,
-    {
-        use AnalysisTerm::*;
-
-        match self {
-            Reference(binding, _) => {
-                if let Some(term) = definitions.get(binding).map(|term| {
-                    let mut term = term.as_ref().clone();
-                    term.normalize_in(definitions)?;
-                    Ok(term)
-                }) {
-                    *self = term?;
-                }
-            }
-            Lambda { body, erased, .. } => {
-                body.normalize_in(definitions)?;
-                if *erased {
-                    body.substitute_top_in(&AnalysisTerm::Variable(0, None));
-                    *self = replace(&mut *body, Universe(None));
-                }
-            }
-            Put(term, _) => {
-                term.normalize_in(definitions)?;
-                *self = replace(term, AnalysisTerm::Universe(None));
-            }
-            Duplication {
-                body, expression, ..
-            } => {
-                body.substitute_top_in(expression);
-                body.normalize_in(definitions)?;
-                *self = replace(body, AnalysisTerm::Universe(None));
-            }
-            Application {
-                function,
-                argument,
-                erased,
-                ..
-            } => {
-                function.normalize_in(definitions)?;
-                let function = *function.clone();
-                if *erased {
-                    *self = function;
-                } else {
-                    match function {
-                        Put(_, _) => Err(NormalizationError::InvalidApplication)?,
-                        Lambda { mut body, .. } => {
-                            body.substitute_top_in(argument);
-                            body.normalize_in(definitions)?;
-
-                            *self = *body;
-                        }
-                        _ => {
-                            argument.normalize_in(definitions)?;
-                        }
-                    }
-                }
-            }
-            Variable(_, _) | Universe(_) | Wrap(_, _) | Function { .. } | Hole(_) => {}
-
-            Annotation { term, .. } => {
-                term.normalize_in(definitions)?;
-                *self = replace(term, AnalysisTerm::Universe(None));
-            }
-            Compressed(_) => todo!(),
-        }
-
-        Ok(())
     }
 }
