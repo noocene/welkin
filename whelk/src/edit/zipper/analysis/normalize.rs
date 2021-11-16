@@ -2,7 +2,10 @@ use std::mem::replace;
 
 use serde::{Deserialize, Serialize};
 
-use crate::edit::dynamic::abst::controls::Zero;
+use crate::edit::{
+    dynamic::abst::controls::Zero,
+    zipper::{Cursor, Path},
+};
 
 use std::fmt::Debug;
 
@@ -214,8 +217,11 @@ impl<T> AnalysisTerm<Option<T>> {
                 term.weak_normalize_in_erased(definitions, erase)?;
                 *self = replace(term, AnalysisTerm::Universe(None));
             }
-            Compressed(_) => {
-                // TODO actual normalization
+            Compressed(data) => {
+                let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
+                let data: AnalysisTerm<Option<()>> = data.into();
+                *self = data.map_annotation(&mut |data| None);
+                self.weak_normalize_in_erased(definitions, erase)?;
             }
         }
 
