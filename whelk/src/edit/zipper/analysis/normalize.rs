@@ -2,10 +2,7 @@ use std::mem::replace;
 
 use serde::{Deserialize, Serialize};
 
-use crate::edit::{
-    dynamic::abst::controls::Zero,
-    zipper::{Cursor, Path},
-};
+use crate::edit::dynamic::abst::controls::Zero;
 
 use std::fmt::Debug;
 
@@ -80,17 +77,16 @@ impl<T: Zero> AnalysisTerm<T> {
                     }
                 }
             }
-            Variable(_, _) | Universe(_) | Wrap(_, _) | Function { .. } | Hole(_) => {}
+            Variable(_, _)
+            | Universe(_)
+            | Wrap(_, _)
+            | Function { .. }
+            | Hole(_)
+            | Compressed(_) => {}
 
             Annotation { term, .. } => {
                 term.normalize_in(definitions)?;
                 *self = replace(term, AnalysisTerm::Universe(T::zero()));
-            }
-            Compressed(data) => {
-                // let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
-                // let data: AnalysisTerm<Option<()>> = data.into();
-                // *self = data.map_annotation(&mut |data| T::zero());
-                // self.normalize_in(definitions)?;
             }
         }
 
@@ -212,16 +208,10 @@ impl<T> AnalysisTerm<Option<T>> {
                 }
             }
 
-            Universe(_) | Function { .. } | Wrap(_, _) | Hole(_) => {}
+            Universe(_) | Function { .. } | Wrap(_, _) | Hole(_) | Compressed(_) => {}
             Annotation { term, .. } => {
                 term.weak_normalize_in_erased(definitions, erase)?;
                 *self = replace(term, AnalysisTerm::Universe(None));
-            }
-            Compressed(data) => {
-                let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
-                let data: AnalysisTerm<Option<()>> = data.into();
-                *self = data.map_annotation(&mut |data| None);
-                self.weak_normalize_in_erased(definitions, erase)?;
             }
         }
 

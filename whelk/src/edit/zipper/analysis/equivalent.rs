@@ -187,7 +187,7 @@ impl<T> AnalysisTerm<Option<T>> {
                         }
                         (Compressed(a), Compressed(b)) => {
                             if let Some(eq) = a.partial_eq(b.as_ref()) {
-                                ret_a = Some(EqualityTree::Leaf(eq));
+                                return Ok(EqualityTree::Leaf(eq));
                             }
                         }
                         _ => {}
