@@ -234,20 +234,16 @@ fn push_paragraph(data: Block, container: &Element) {
                 } => {
                     let el1 = document.create_element("span").unwrap();
                     el1.class_list().add_1("inline-pad").unwrap();
-                    if expected.no_variables() {
-                        let data: zipper::Term<()> = expected.clear_annotation().into();
-                        static_scratchpad(data, el1.clone().into());
-                    } else {
-                        el1.set_text_content(Some(&format!("{:?}", expected)));
-                    };
+
+                    let data: zipper::Term<()> = expected.clear_annotation().into();
+                    static_scratchpad(data, el1.clone().into());
+
                     let el2 = document.create_element("span").unwrap();
                     el2.class_list().add_1("inline-pad").unwrap();
-                    if got.no_variables() {
-                        let data: zipper::Term<()> = got.clear_annotation().into();
-                        static_scratchpad(data, el2.clone().into());
-                    } else {
-                        el2.set_text_content(Some(&format!("{:?}", got)));
-                    };
+
+                    let data: zipper::Term<()> = got.clear_annotation().into();
+                    static_scratchpad(data, el2.clone().into());
+
                     paragraph.set_text_content(Some("type error\nexpected "));
                     paragraph.append_child(&el1).unwrap();
                     let mid = document.create_text_node("\n     got ");
@@ -289,19 +285,10 @@ fn push_paragraph(data: Block, container: &Element) {
             let inner = document.create_element("div").unwrap();
             inner.class_list().add_1("inline-pad").unwrap();
             paragraph.set_attribute("data-prefix", &prefix).unwrap();
-            if data.no_variables() {
-                let data: zipper::Term<()> = data.into();
-                static_scratchpad(data, inner.clone().into());
-            } else {
-                if data.is_complete() {
-                    paragraph.set_text_content(Some(&format!(
-                        "{:?}",
-                        welkin_core::term::Term::from(data)
-                    )));
-                } else {
-                    paragraph.set_text_content(Some(&format!("{:?}", data)));
-                }
-            }
+
+            let data: zipper::Term<()> = data.into();
+            static_scratchpad(data, inner.clone().into());
+
             paragraph.append_child(&inner).unwrap();
             wrapper.append_child(&paragraph).unwrap();
             container.append_child(&wrapper).unwrap();

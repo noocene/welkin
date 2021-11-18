@@ -19,9 +19,15 @@ use std::{
 use derivative::Derivative;
 use welkin_core::term::{self, Index};
 
-use crate::edit::dynamic::abst::controls::Zero;
+use crate::edit::dynamic::abst::{
+    controls::{Variable, Zero},
+    implementation::Root,
+};
 
-use super::{CompressedTerm, Cursor, Term};
+use super::{
+    dynamic::{Dynamic, DynamicTerm},
+    CompressedTerm, Cursor, Term,
+};
 
 pub enum DefinitionResult<'a, T> {
     Borrowed(&'a T),
@@ -198,7 +204,10 @@ impl<T: Debug> Debug for AnalysisTerm<T> {
     }
 }
 
-impl<T: Zero + Clone> From<AnalysisTerm<T>> for Term<T> {
+impl<T: Zero + Clone> From<AnalysisTerm<T>> for Term<T>
+where
+    Root: DynamicTerm<T>,
+{
     fn from(term: AnalysisTerm<T>) -> Self {
         match term {
             AnalysisTerm::Lambda {
@@ -212,7 +221,9 @@ impl<T: Zero + Clone> From<AnalysisTerm<T>> for Term<T> {
                 body: Box::new((*body).into()),
                 annotation,
             },
-            AnalysisTerm::Variable(_, _) => todo!(),
+            AnalysisTerm::Variable(idx, annotation) => {
+                Term::Dynamic(Dynamic::new(annotation, Root::new(Variable::new(idx))))
+            }
             AnalysisTerm::Application {
                 erased,
                 function,

@@ -2,8 +2,10 @@ mod adt;
 pub use adt::*;
 mod invoke;
 mod literal;
+mod variable;
 pub use invoke::*;
 pub use literal::*;
+pub use variable::*;
 
 use mincodec::MinCodec;
 
@@ -20,6 +22,7 @@ pub enum ControlData {
     Invoke,
     StringLiteral(String),
     SizeLiteral(usize),
+    Variable(usize),
 }
 
 impl ControlData {
@@ -41,6 +44,7 @@ impl ControlData {
             ControlData::Literal => Box::new(Literal::new()),
             ControlData::StringLiteral(data) => Box::new(StringLiteral::from(data)),
             ControlData::SizeLiteral(size) => Box::new(SizeLiteral::from(size)),
+            ControlData::Variable(size) => Box::new(Variable::new(size)),
         }
     }
 }
