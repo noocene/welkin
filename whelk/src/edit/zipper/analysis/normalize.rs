@@ -2,7 +2,10 @@ use std::mem::replace;
 
 use serde::{Deserialize, Serialize};
 
-use crate::edit::dynamic::abst::controls::Zero;
+use crate::edit::{
+    dynamic::abst::controls::Zero,
+    zipper::{Cursor, Path},
+};
 
 use std::fmt::Debug;
 
@@ -95,6 +98,17 @@ impl<T: Zero> AnalysisTerm<T> {
 }
 
 impl<T> AnalysisTerm<Option<T>> {
+    pub(crate) fn decompress(&mut self) {
+        match self {
+            AnalysisTerm::Compressed(data) => {
+                let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
+                let data: AnalysisTerm<Option<()>> = data.into();
+                *self = data.map_annotation(&mut |data| None);
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn weak_normalize_in_erased<U: Definitions<Option<T>>>(
         &mut self,
         definitions: &U,
@@ -122,6 +136,7 @@ impl<T> AnalysisTerm<Option<T>> {
                 ..
             } => {
                 function.weak_normalize_in_erased(definitions, erase)?;
+                argument.decompress();
                 let f = *function.clone();
                 match f {
                     Put(_, _) => Err(NormalizationError::InvalidApplication)?,
