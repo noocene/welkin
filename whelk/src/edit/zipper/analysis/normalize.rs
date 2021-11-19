@@ -136,7 +136,7 @@ impl<T> AnalysisTerm<Option<T>> {
                 ..
             } => {
                 function.weak_normalize_in_erased(definitions, erase)?;
-                argument.decompress();
+                // argument.decompress();
                 let f = *function.clone();
                 match f {
                     Put(_, _) => Err(NormalizationError::InvalidApplication)?,

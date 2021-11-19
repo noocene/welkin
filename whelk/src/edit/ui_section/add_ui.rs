@@ -9,7 +9,7 @@ use crate::edit::{
     configure_contenteditable,
     dynamic::{
         abst::{
-            controls::{Adt, Invoke},
+            controls::{Adt, CompressedSize, Invoke, SizeLiteral, Zero},
             implementation::Root,
         },
         Def,
@@ -21,7 +21,11 @@ use crate::edit::{
 
 use super::UiSection;
 
-pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>, editable: bool) -> Term<UiSection> {
+pub fn add_ui<T: Zero + Clone + 'static>(
+    term: Term<T>,
+    sender: &Sender<()>,
+    editable: bool,
+) -> Term<UiSection> {
     let document = web_sys::window().unwrap().document().unwrap();
 
     match term {
@@ -791,7 +795,20 @@ pub fn add_ui<T>(term: Term<T>, sender: &Sender<()>, editable: bool) -> Term<UiS
             Term::Dynamic(Dynamic::new(annotation, term))
         }
 
-        Term::Compressed(_) => todo!(),
+        Term::Compressed(data) => {
+            let data = match data.downcast::<CompressedSize>() {
+                Ok(data) => {
+                    return add_ui(
+                        Term::Dynamic(Dynamic::new((), Root::new(SizeLiteral::from(data.size())))),
+                        sender,
+                        editable,
+                    )
+                }
+                Err(data) => data,
+            };
+
+            add_ui(data.expand(), sender, editable)
+        }
     }
 }
 

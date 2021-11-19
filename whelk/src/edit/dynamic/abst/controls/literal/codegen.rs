@@ -111,6 +111,10 @@ impl CompressedSize {
     pub fn new(size: usize) -> CompressedSize {
         CompressedSize { size }
     }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
 }
 
 pub trait Zero {
@@ -383,4 +387,30 @@ impl<T: Zero + Clone> CompressedTerm<T> for CompressedString {
             None
         }
     }
+}
+
+pub fn conv_compressed<T: Zero + Clone>(
+    data: Box<dyn CompressedTerm<()>>,
+) -> Result<Box<dyn CompressedTerm<T>>, Box<dyn CompressedTerm<()>>> {
+    let data = match data.downcast::<CompressedString>() {
+        Ok(data) => return Ok(Box::new(*data)),
+        Err(data) => data,
+    };
+
+    let data = match data.downcast::<CompressedSize>() {
+        Ok(data) => return Ok(Box::new(*data)),
+        Err(data) => data,
+    };
+
+    let data = match data.downcast::<CompressedWord>() {
+        Ok(data) => return Ok(Box::new(*data)),
+        Err(data) => data,
+    };
+
+    let data = match data.downcast::<CompressedChar>() {
+        Ok(data) => return Ok(Box::new(*data)),
+        Err(data) => data,
+    };
+
+    Err(data)
 }

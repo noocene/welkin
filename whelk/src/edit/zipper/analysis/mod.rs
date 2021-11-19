@@ -20,7 +20,7 @@ use derivative::Derivative;
 use welkin_core::term::{self, Index};
 
 use crate::edit::dynamic::abst::{
-    controls::{Variable, Zero},
+    controls::{conv_compressed, Variable, Zero},
     implementation::Root,
 };
 
@@ -269,11 +269,14 @@ where
             }
             AnalysisTerm::Hole(annotation) => Term::Hole(annotation),
             AnalysisTerm::Annotation { checked, term, ty } => (*term).into(),
-            AnalysisTerm::Compressed(data) => {
-                // TODO correct
-                AnalysisTerm::from_unit_term_and_context(data.expand(), &mut BasicContext::new())
-                    .into()
-            }
+            AnalysisTerm::Compressed(data) => match conv_compressed(data) {
+                Ok(data) => Term::Compressed(data),
+                Err(data) => AnalysisTerm::from_unit_term_and_context(
+                    data.expand(),
+                    &mut BasicContext::new(),
+                )
+                .into(),
+            },
         }
     }
 }
@@ -577,7 +580,10 @@ pub trait ConversionContext {
 }
 
 impl<T: Clone + Zero> AnalysisTerm<T> {
-    fn from_unit_term_and_context<'a, U: ConversionContext>(term: Term<()>, ctx: &mut U) -> Self {
+    pub(crate) fn from_unit_term_and_context<'a, U: ConversionContext>(
+        term: Term<()>,
+        ctx: &mut U,
+    ) -> Self {
         match term {
             Term::Lambda {
                 erased,
