@@ -21,3 +21,22 @@ impl From<usize> for w::Size {
         w::Size(term)
     }
 }
+
+impl From<w::Size> for usize {
+    fn from(data: w::Size) -> Self {
+        let mut size = 0;
+
+        let mut term = data.0;
+
+        while let Term::Lambda { body, .. } = term {
+            term = *body;
+        }
+
+        while let Term::Apply { argument, .. } = term {
+            term = *argument;
+            size += 1;
+        }
+
+        size
+    }
+}

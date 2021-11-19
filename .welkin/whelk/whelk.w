@@ -88,8 +88,8 @@ forever[
 
 define:
 Sized[String] ->
-* ~as A       ->
-A             ->
+Ast           ->
+Ast           ->
 WhelkIO[Unit, ~literal Size 1]
 
 name |>

@@ -471,22 +471,23 @@ fn term_to_ty(
         Term::Reference(reference) => {
             if let Some(segment) = reference.0.first() {
                 if reference.0.len() == 1 {
+                    let inductive = segment == this;
                     if let Some(OverrideData::Override { .. }) = overrides.get(segment.as_str()) {
                         let ident = format_ident!("r#{}", segment);
-                        return Ok((quote!(#ident), false));
+                        return Ok((quote!(#ident), inductive));
                     } else if let Some(OverrideData::Wrapper { ident }) =
                         overrides.get(segment.as_str())
                     {
                         let ident = format_ident!("r#{}", ident);
-                        return Ok((quote!(#ident), false));
+                        return Ok((quote!(#ident), inductive));
                     } else if defs.iter().any(|def| &def.ident == segment) {
                         let ident = format_ident!("r#{}", segment);
-                        return Ok((quote!(#ident), false));
+                        return Ok((quote!(#ident), inductive));
                     } else if expr.is_match(segment) {
                         let ident: String = segment.chars().skip(1).collect();
                         let ident: u8 = ident.parse()?;
                         let ident = format_ident!("{}", ('A' as u8 + ident) as char);
-                        return Ok((quote!(#ident), false));
+                        return Ok((quote!(#ident), inductive));
                     }
                 }
             }

@@ -5,6 +5,7 @@ macro_rules! console_log {
 
 use std::{cell::RefCell, collections::HashMap, error::Error, mem::replace, panic, rc::Rc};
 
+use anyhow::anyhow;
 use async_recursion::async_recursion;
 use bindings::{io::iter::LoopRequest, w};
 use edit::{
@@ -613,7 +614,7 @@ async fn add_scratchpad(
 
                                         output.set_inner_html("");
 
-                                        run_io(
+                                        if let Err(_) = run_io(
                                             io,
                                             &|block| push_paragraph(block, &output),
                                             &mut stream::pending(),
@@ -622,7 +623,15 @@ async fn add_scratchpad(
                                             &worker,
                                         )
                                         .await
-                                        .unwrap();
+                                        {
+                                            push_paragraph(
+                                                Block::Info {
+                                                    header: "TERMINATE".into(),
+                                                    content: "".into(),
+                                                },
+                                                &output,
+                                            );
+                                        }
                                         console_log!("evaluate took {:.1}ms", perf.now() - time);
                                     }
                                 }
@@ -974,13 +983,56 @@ where
                         w::Sized::new { data, .. } => data.clone().into(),
                     };
 
+                    let term: AnalysisTerm<()> = term.clone().into();
+                    let ty: AnalysisTerm<()> = r#type.clone().into();
+
+                    let mut errors = vec![];
+
+                    if let Err(e) = worker
+                        .check(
+                            ty.clone().map_annotation(&mut |_| None::<()>),
+                            AnalysisTerm::Universe(None),
+                            |annotation, ty| {},
+                            |annotation, ty| {},
+                        )
+                        .await
+                    {
+                        errors.push(Block::Error {
+                            data: e.map_annotation(&mut |_| None::<_>),
+                        });
+                    }
+
+                    if let Err(e) = worker
+                        .check(
+                            term.clone().map_annotation(&mut |_| None::<()>),
+                            ty.clone().map_annotation(&mut |_| None::<()>),
+                            |annotation, ty| {},
+                            |annotation, ty| {},
+                        )
+                        .await
+                    {
+                        errors.push(Block::Error {
+                            data: e.map_annotation(&mut |_| None::<_>),
+                        });
+                    }
+
                     push_paragraph(Block::Info {
-                        header: "DEF".into(),
+                        header: format!("DEF {}", if errors.is_empty() { "OK" } else { "ERR" }),
                         content: format!("{:?}", name.clone()),
                     });
 
-                    let term = term.0.clone();
-                    let ty = r#type.0.clone();
+                    let errored = !errors.is_empty();
+
+                    for error in errors {
+                        push_paragraph(error);
+                    }
+
+                    if errored {
+                        Err(anyhow!("type error"))?;
+                    }
+
+                    let term: Term<String> = term.into();
+                    let ty: Term<String> = ty.into();
 
                     defs.0
                         .borrow_mut()

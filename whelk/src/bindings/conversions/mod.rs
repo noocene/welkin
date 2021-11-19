@@ -1,3 +1,5 @@
+mod ast;
+mod bool;
 mod char;
 mod size;
 mod string;

@@ -3,8 +3,8 @@
     prompt(data: Unit),
     define(
         name: Sized[String],
-        type: *,
-        term: type
+        type: Ast,
+        term: Ast
     ),
     loop[
         state: *,

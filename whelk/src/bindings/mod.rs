@@ -15,7 +15,8 @@ bind! {
         String,
         IO,
         WhelkRequest,
-        Whelk
+        Whelk,
+        Ast
     )]
     pub mod w {
         #[wrapper = "IO::call.then"]
@@ -40,12 +41,6 @@ bind! {
         #[wrapper = "WhelkRequest::loop.step"]
         struct WhelkRequestLoopStep;
 
-        #[wrapper = "WhelkRequest::define.type"]
-        struct WhelkRequestDefineType;
-
-        #[wrapper = "WhelkRequest::define.term"]
-        struct WhelkRequestDefineTerm;
-
         #[wrapper = "Any"]
         struct Any;
 
@@ -68,7 +63,5 @@ impl_wrapper! {
 impl_wrapper! {
     w::WhelkRequestLoopInitialState,
     w::WhelkRequestLoopContinuePredicate,
-    w::WhelkRequestLoopStep,
-    w::WhelkRequestDefineType,
-    w::WhelkRequestDefineTerm
+    w::WhelkRequestLoopStep
 }
