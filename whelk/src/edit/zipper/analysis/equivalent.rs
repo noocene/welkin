@@ -1,5 +1,6 @@
 use bumpalo::Bump;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
+use std::mem::replace;
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -16,6 +17,17 @@ enum EqualityTree<'a, T> {
     Or(BumpBox<'a, Option<(EqualityTree<'a, T>, EqualityTree<'a, T>)>>),
     And(BumpBox<'a, Option<(EqualityTree<'a, T>, EqualityTree<'a, T>)>>),
     Leaf(bool),
+}
+
+impl<'a, T: Debug> Debug for EqualityTree<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Equal(arg0, arg1) => f.debug_tuple("Equal").field(arg0).field(arg1).finish(),
+            Self::Or(arg0) => f.debug_tuple("Or").field(arg0).finish(),
+            Self::And(arg0) => f.debug_tuple("And").field(arg0).finish(),
+            Self::Leaf(arg0) => f.debug_tuple("Leaf").field(arg0).finish(),
+        }
+    }
 }
 
 struct Empty;
@@ -43,15 +55,15 @@ impl<T> AnalysisTerm<Option<T>> {
         use AnalysisTerm::*;
 
         fn equivalence_helper<'b, U: Definitions<Option<T>>, T: Clone + Debug>(
-            tree: EqualityTree<'b, Option<T>>,
+            tree: &mut EqualityTree<'b, Option<T>>,
             definitions: &U,
             o_alloc: &'b Bump,
             fill_hole: &mut impl FnMut(Option<&T>, &AnalysisTerm<Option<T>>),
             cache: &mut impl EqualityCache,
-        ) -> Result<EqualityTree<'b, Option<T>>, NormalizationError> {
-            Ok(match tree {
-                this @ EqualityTree::Leaf(_) => this,
-                EqualityTree::And(mut data) => {
+        ) -> Result<(), NormalizationError> {
+            *tree = Ok(match tree {
+                EqualityTree::Leaf(data) => EqualityTree::Leaf(*data),
+                EqualityTree::And(ref mut data) => {
                     let (a, b) = data.as_ref().as_ref().unwrap();
                     match (a, b) {
                         (EqualityTree::Leaf(false), _) | (_, EqualityTree::Leaf(false)) => {
@@ -60,31 +72,29 @@ impl<T> AnalysisTerm<Option<T>> {
                         (EqualityTree::Leaf(true), EqualityTree::Leaf(true)) => {
                             EqualityTree::Leaf(true)
                         }
-                        _ => EqualityTree::And(BumpBox::new_in(
-                            Some({
-                                let data = data.take().unwrap();
-                                (
-                                    equivalence_helper(
-                                        data.0,
-                                        definitions,
-                                        o_alloc,
-                                        fill_hole,
-                                        &mut *cache,
-                                    )?,
-                                    equivalence_helper(
-                                        data.1,
-                                        definitions,
-                                        o_alloc,
-                                        fill_hole,
-                                        cache,
-                                    )?,
-                                )
-                            }),
-                            o_alloc,
-                        )),
+                        (EqualityTree::Leaf(true), a) => data.take().unwrap().1,
+                        (a, EqualityTree::Leaf(true)) => data.take().unwrap().0,
+                        _ => {
+                            let mut data = data.take().unwrap();
+                            equivalence_helper(
+                                &mut data.0,
+                                definitions,
+                                o_alloc,
+                                fill_hole,
+                                &mut *cache,
+                            )?;
+                            equivalence_helper(
+                                &mut data.1,
+                                definitions,
+                                o_alloc,
+                                fill_hole,
+                                cache,
+                            )?;
+                            EqualityTree::And(BumpBox::new_in(Some((data.0, data.1)), o_alloc))
+                        }
                     }
                 }
-                EqualityTree::Or(mut data) => {
+                EqualityTree::Or(ref mut data) => {
                     let (a, b) = data.as_ref().as_ref().unwrap();
                     match (&a, &b) {
                         (EqualityTree::Leaf(true), _) | (_, EqualityTree::Leaf(true)) => {
@@ -93,31 +103,32 @@ impl<T> AnalysisTerm<Option<T>> {
                         (EqualityTree::Leaf(false), EqualityTree::Leaf(false)) => {
                             EqualityTree::Leaf(false)
                         }
+                        (EqualityTree::Leaf(false), a) => data.take().unwrap().1,
+                        (a, EqualityTree::Leaf(true)) => data.take().unwrap().0,
                         _ => EqualityTree::Or(BumpBox::new_in(
                             {
-                                let data = data.take().unwrap();
-                                Some((
-                                    equivalence_helper(
-                                        data.0,
-                                        definitions,
-                                        o_alloc,
-                                        fill_hole,
-                                        &mut *cache,
-                                    )?,
-                                    equivalence_helper(
-                                        data.1,
-                                        definitions,
-                                        o_alloc,
-                                        fill_hole,
-                                        cache,
-                                    )?,
-                                ))
+                                let mut data = data.take().unwrap();
+                                equivalence_helper(
+                                    &mut data.0,
+                                    definitions,
+                                    o_alloc,
+                                    fill_hole,
+                                    &mut *cache,
+                                )?;
+                                equivalence_helper(
+                                    &mut data.1,
+                                    definitions,
+                                    o_alloc,
+                                    fill_hole,
+                                    cache,
+                                )?;
+                                Some((data.0, data.1))
                             },
                             o_alloc,
                         )),
                     }
                 }
-                EqualityTree::Equal(mut a, mut b) => {
+                EqualityTree::Equal(ref mut a, ref mut b) => {
                     a.weak_normalize_in_erased(&Empty, true)?;
                     b.weak_normalize_in_erased(&Empty, true)?;
 
@@ -134,11 +145,13 @@ impl<T> AnalysisTerm<Option<T>> {
                     let b_hash = hasher.finish();
 
                     if a_hash == b_hash {
-                        return Ok(EqualityTree::Leaf(true));
+                        *tree = EqualityTree::Leaf(true);
+                        return Ok(());
                     }
 
                     if let Some(leaf) = cache.check(a_hash, b_hash) {
-                        return Ok(EqualityTree::Leaf(leaf));
+                        *tree = EqualityTree::Leaf(leaf);
+                        return Ok(());
                     }
 
                     let mut ret_a = None;
@@ -187,7 +200,8 @@ impl<T> AnalysisTerm<Option<T>> {
                         }
                         (Compressed(a), Compressed(b)) => {
                             if let Some(eq) = a.partial_eq(b.as_ref()) {
-                                return Ok(EqualityTree::Leaf(eq));
+                                *tree = EqualityTree::Leaf(eq);
+                                return Ok(());
                             }
                         }
                         _ => {}
@@ -217,8 +231,26 @@ impl<T> AnalysisTerm<Option<T>> {
                             } else {
                                 EqualityTree::And(BumpBox::new_in(
                                     Some((
-                                        EqualityTree::Equal(*a_argument_type, *b_argument_type),
-                                        EqualityTree::Equal(*a_return_type, *b_return_type),
+                                        EqualityTree::Equal(
+                                            replace(
+                                                a_argument_type.as_mut(),
+                                                AnalysisTerm::Hole(None),
+                                            ),
+                                            replace(
+                                                b_argument_type.as_mut(),
+                                                AnalysisTerm::Hole(None),
+                                            ),
+                                        ),
+                                        EqualityTree::Equal(
+                                            replace(
+                                                a_return_type.as_mut(),
+                                                AnalysisTerm::Hole(None),
+                                            ),
+                                            replace(
+                                                b_return_type.as_mut(),
+                                                AnalysisTerm::Hole(None),
+                                            ),
+                                        ),
                                     )),
                                     o_alloc,
                                 ))
@@ -239,7 +271,10 @@ impl<T> AnalysisTerm<Option<T>> {
                             if a_erased != b_erased {
                                 EqualityTree::Leaf(false)
                             } else {
-                                EqualityTree::Equal(*a_body, *b_body)
+                                EqualityTree::Equal(
+                                    replace(a_body.as_mut(), AnalysisTerm::Hole(None)),
+                                    replace(b_body.as_mut(), AnalysisTerm::Hole(None)),
+                                )
                             }
                         }
                         (
@@ -261,16 +296,28 @@ impl<T> AnalysisTerm<Option<T>> {
                             } else {
                                 EqualityTree::And(BumpBox::new_in(
                                     Some((
-                                        EqualityTree::Equal(*a_argument, *b_argument),
-                                        EqualityTree::Equal(*a_function, *b_function),
+                                        EqualityTree::Equal(
+                                            replace(a_argument.as_mut(), AnalysisTerm::Hole(None)),
+                                            replace(b_argument.as_mut(), AnalysisTerm::Hole(None)),
+                                        ),
+                                        EqualityTree::Equal(
+                                            replace(a_function.as_mut(), AnalysisTerm::Hole(None)),
+                                            replace(b_function.as_mut(), AnalysisTerm::Hole(None)),
+                                        ),
                                     )),
                                     o_alloc,
                                 ))
                             }
                         }
                         (Variable(a, _), Variable(b, _)) => EqualityTree::Leaf(a == b),
-                        (Wrap(a, _), Wrap(b, _)) => EqualityTree::Equal(*a, *b),
-                        (Put(a, _), Put(b, _)) => EqualityTree::Equal(*a, *b),
+                        (Wrap(a, _), Wrap(b, _)) => EqualityTree::Equal(
+                            replace(a.as_mut(), AnalysisTerm::Hole(None)),
+                            replace(b.as_mut(), AnalysisTerm::Hole(None)),
+                        ),
+                        (Put(a, _), Put(b, _)) => EqualityTree::Equal(
+                            replace(a.as_mut(), AnalysisTerm::Hole(None)),
+                            replace(b.as_mut(), AnalysisTerm::Hole(None)),
+                        ),
                         (
                             Duplication {
                                 expression: a_expression,
@@ -284,8 +331,14 @@ impl<T> AnalysisTerm<Option<T>> {
                             },
                         ) => EqualityTree::And(BumpBox::new_in(
                             Some((
-                                EqualityTree::Equal(*a_expression, *b_expression),
-                                EqualityTree::Equal(*a_body, *b_body),
+                                EqualityTree::Equal(
+                                    replace(a_expression.as_mut(), AnalysisTerm::Hole(None)),
+                                    replace(b_expression.as_mut(), AnalysisTerm::Hole(None)),
+                                ),
+                                EqualityTree::Equal(
+                                    replace(a_body.as_mut(), AnalysisTerm::Hole(None)),
+                                    replace(b_body.as_mut(), AnalysisTerm::Hole(None)),
+                                ),
                             )),
                             o_alloc,
                         )),
@@ -309,7 +362,7 @@ impl<T> AnalysisTerm<Option<T>> {
                                 a.expand(),
                                 &mut BasicContext::new(),
                             );
-                            EqualityTree::Equal(a, b)
+                            EqualityTree::Equal(a, replace(b, AnalysisTerm::Hole(None)))
                         }
                         _ => EqualityTree::Leaf(false),
                     };
@@ -320,7 +373,8 @@ impl<T> AnalysisTerm<Option<T>> {
                         ret_b
                     }
                 }
-            })
+            })?;
+            Ok(())
         }
 
         let o_alloc = Bump::new();
@@ -359,7 +413,7 @@ impl<T> AnalysisTerm<Option<T>> {
             EqualityTree::Leaf(_) => false,
             _ => true,
         } {
-            equality = equivalence_helper(equality, definitions, &o_alloc, fill_hole, cache)?;
+            equivalence_helper(&mut equality, definitions, &o_alloc, fill_hole, cache)?;
         }
 
         Ok(if let EqualityTree::Leaf(leaf) = equality {

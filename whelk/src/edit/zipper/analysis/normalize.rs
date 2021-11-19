@@ -136,8 +136,15 @@ impl<T> AnalysisTerm<Option<T>> {
                 ..
             } => {
                 function.weak_normalize_in_erased(definitions, erase)?;
-                // argument.decompress();
-                let f = *function.clone();
+
+                let mut f = *function.clone();
+
+                // if erase {
+                //     while let AnalysisTerm::Compressed(_) = &f {
+                //         f.decompress();
+                //     }
+                // }
+
                 match f {
                     Put(_, _) => Err(NormalizationError::InvalidApplication)?,
                     Duplication {
@@ -162,6 +169,12 @@ impl<T> AnalysisTerm<Option<T>> {
                         };
                     }
                     Lambda { mut body, .. } => {
+                        // if erase {
+                        //     while let AnalysisTerm::Compressed(_) = &**argument {
+                        //         argument.decompress();
+                        //     }
+                        // }
+
                         body.substitute_top_in(argument);
                         body.weak_normalize_in_erased(definitions, erase)?;
                         *self = *body;

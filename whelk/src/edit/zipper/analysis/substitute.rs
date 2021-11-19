@@ -1,9 +1,14 @@
+use crate::edit::{
+    dynamic::abst::controls::Zero,
+    zipper::{Cursor, Path},
+};
+
 use super::AnalysisTerm;
 
 impl<T> AnalysisTerm<T> {
     pub(crate) fn substitute_in(&mut self, variable: usize, term: &AnalysisTerm<T>, shift: bool)
     where
-        T: Clone,
+        T: Clone + Zero,
     {
         use AnalysisTerm::*;
 
@@ -61,22 +66,25 @@ impl<T> AnalysisTerm<T> {
                 term.shift_top_by(2);
                 return_type.substitute_in(variable + 2, &term, shift);
             }
-            Compressed(_) => {
-                // TODO actual implementation
+            Compressed(data) => {
+                let data = Cursor::<()>::from_term_and_path(data.expand(), Path::Top);
+                let data: AnalysisTerm<Option<()>> = data.into();
+                *self = data.map_annotation(&mut |data| T::zero());
+                self.substitute_in(variable, term, shift);
             }
         }
     }
 
     pub fn substitute_top_in(&mut self, term: &AnalysisTerm<T>)
     where
-        T: Clone,
+        T: Clone + Zero,
     {
         self.substitute_in(0, term, true)
     }
 
     pub(crate) fn substitute_top_in_unshifted(&mut self, term: &AnalysisTerm<T>)
     where
-        T: Clone,
+        T: Clone + Zero,
     {
         self.substitute_in(0, term, false)
     }
@@ -86,7 +94,7 @@ impl<T> AnalysisTerm<T> {
         mut self_binding: AnalysisTerm<T>,
         argument_binding: &AnalysisTerm<T>,
     ) where
-        T: Clone,
+        T: Clone + Zero,
     {
         self_binding.shift_top();
         self.substitute_in(1, &self_binding, true);
@@ -98,7 +106,7 @@ impl<T> AnalysisTerm<T> {
         mut self_binding: AnalysisTerm<T>,
         argument_binding: &AnalysisTerm<T>,
     ) where
-        T: Clone,
+        T: Clone + Zero,
     {
         self_binding.shift_top();
         self.substitute_in(1, &self_binding, true);
