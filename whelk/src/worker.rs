@@ -170,6 +170,14 @@ impl WorkerWrapper {
         data.data.unwrap();
         data.evaluated.unwrap()
     }
+
+    pub async fn expand_evaluate(&self, term: AnalysisTerm<()>) -> Term<String> {
+        let data = self
+            .make_request(WorkerRequestVariant::ExpandEvaluate(term))
+            .await;
+        data.data.unwrap();
+        data.evaluated.unwrap()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -178,6 +186,7 @@ pub enum WorkerRequestVariant {
     Register(String, Term<String>, Term<String>),
     Initialize(DefWrapperData),
     Evaluate(Term<String>),
+    ExpandEvaluate(AnalysisTerm<()>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -261,6 +270,17 @@ pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
             Ok(())
         }
         WorkerRequestVariant::Evaluate(term) => {
+            let e = DEFS.with(|defs| {
+                let defs = defs.borrow();
+                let defs = defs.as_ref().unwrap();
+                let evaluator = Inet(defs.clone());
+                evaluator.evaluate(term)
+            });
+            evaluated = Some(e.await.unwrap());
+            Ok(())
+        }
+        WorkerRequestVariant::ExpandEvaluate(term) => {
+            let term: Term<String> = term.into();
             let e = DEFS.with(|defs| {
                 let defs = defs.borrow();
                 let defs = defs.as_ref().unwrap();

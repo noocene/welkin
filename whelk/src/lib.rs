@@ -597,10 +597,9 @@ async fn add_scratchpad(
                                         let time = perf.now();
 
                                         let whelk = {
-                                            let mut term = term.clone().into();
-                                            term = <_ as CoreEvaluator>::evaluate(&evaluator, term)
-                                                .await
-                                                .unwrap();
+                                            let term = worker
+                                                .expand_evaluate(term.clone().clear_annotation())
+                                                .await;
                                             w::Whelk::from_welkin(term).unwrap()
                                         };
 
