@@ -24,6 +24,7 @@ module.exports = {
         new CopyWebpackPlugin({
             patterns: [
                 { from: "welkin", to: "" },
+                { from: "assets", to: "" }
             ],
         }),
     ],
@@ -32,9 +33,13 @@ module.exports = {
         asyncWebAssembly: true
     },
     devServer: {
-        static: {
-            directory: path.join(__dirname, 'welkin')
-        }
+        static: [{
+                directory: path.join(__dirname, 'welkin')
+            },
+            {
+                directory: path.join(__dirname, 'assets')
+            }
+        ]
     },
     ignoreWarnings: [
         (warning) =>
