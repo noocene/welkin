@@ -9,7 +9,7 @@ use web_sys::{DedicatedWorkerGlobalScope, MessageEvent, Worker};
 use welkin_core::term::{MapCache, Term};
 
 use crate::{
-    edit::zipper::analysis::{AnalysisError, AnalysisTerm},
+    edit::zipper::analysis::{AnalysisError, AnalysisTerm, StratificationError},
     DefWrapper, DefWrapperData,
 };
 
@@ -24,6 +24,35 @@ pub struct WorkerWrapper {
     worker: Worker,
     channels: Rc<RefCell<HashMap<Uuid, Sender<WorkerResponse>>>>,
     on_message: Rc<Closure<dyn FnMut(JsValue)>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum CheckError<T> {
+    Analysis(AnalysisError<T>),
+    Stratification(StratificationError),
+    Recursive,
+}
+
+impl<T> CheckError<T> {
+    pub fn map_annotation<U, F: FnMut(T) -> U>(self, call: &mut F) -> CheckError<U> {
+        match self {
+            CheckError::Analysis(e) => CheckError::Analysis(e.map_annotation(call)),
+            CheckError::Stratification(e) => CheckError::Stratification(e),
+            CheckError::Recursive => CheckError::Recursive,
+        }
+    }
+}
+
+impl<T> From<AnalysisError<T>> for CheckError<T> {
+    fn from(e: AnalysisError<T>) -> Self {
+        CheckError::Analysis(e)
+    }
+}
+
+impl<T> From<StratificationError> for CheckError<T> {
+    fn from(e: StratificationError) -> Self {
+        CheckError::Stratification(e)
+    }
 }
 
 impl WorkerWrapper {
@@ -73,7 +102,7 @@ impl WorkerWrapper {
         ty: AnalysisTerm<Option<T>>,
         mut annotate: impl FnMut(T, AnalysisTerm<Option<T>>),
         mut fill_hole: impl FnMut(T, AnalysisTerm<Option<T>>),
-    ) -> Result<(), AnalysisError<Option<T>>> {
+    ) -> Result<(), CheckError<Option<T>>> {
         let mut annotations = HashMap::new();
         let resp = self
             .make_request(WorkerRequestVariant::Check(
@@ -152,7 +181,7 @@ pub struct WorkerResponse {
     idx: Uuid,
     inferred: Vec<(u64, AnalysisTerm<Option<u64>>)>,
     filled: Vec<(u64, AnalysisTerm<Option<u64>>)>,
-    data: Result<(), AnalysisError<Option<u64>>>,
+    data: Result<(), CheckError<Option<u64>>>,
 }
 
 pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
@@ -192,7 +221,13 @@ pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
                         }
                     },
                     cache,
-                )
+                )?;
+                term.is_stratified()?;
+                if term.is_recursive_in(defs) {
+                    Err(CheckError::Recursive)
+                } else {
+                    Ok(())
+                }
             })
         }),
         WorkerRequestVariant::Initialize(data) => {

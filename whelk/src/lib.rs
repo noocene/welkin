@@ -16,7 +16,7 @@ use edit::{
     },
     Scratchpad, UiSection,
 };
-use evaluator::{CoreEvaluator, Evaluator, Substitution};
+use evaluator::CoreEvaluator;
 use futures::{
     channel::{
         mpsc::{channel, Receiver, Sender},
@@ -37,7 +37,8 @@ use welkin_core::term::{DefinitionResult, MapCache, Term, TypedDefinitions};
 
 use crate::{
     edit::{add_ui, mutations::HoleMutation, UiSectionVariance},
-    worker::WorkerWrapper,
+    evaluator::Inet,
+    worker::{CheckError, WorkerWrapper},
 };
 
 mod bindings;
@@ -72,7 +73,7 @@ enum Block {
         data: String,
     },
     Error {
-        data: AnalysisError<Option<UiSection>>,
+        data: CheckError<Option<UiSection>>,
     },
     Term {
         prefix: String,
@@ -227,11 +228,11 @@ fn push_paragraph(data: Block, container: &Element) {
                 .unwrap();
 
             match data {
-                AnalysisError::TypeError {
+                CheckError::Analysis(AnalysisError::TypeError {
                     expected,
                     got,
                     annotation,
-                } => {
+                }) => {
                     let el1 = document.create_element("span").unwrap();
                     el1.class_list().add_1("inline-pad").unwrap();
 
@@ -253,16 +254,18 @@ fn push_paragraph(data: Block, container: &Element) {
                         annotation.show_error();
                     }
                 }
-                AnalysisError::ErasureMismatch {
+                CheckError::Analysis(AnalysisError::ErasureMismatch {
                     lambda,
                     ty,
                     annotation,
-                } if annotation.is_some() => {
+                }) if annotation.is_some() => {
                     let annotation = annotation.unwrap();
                     paragraph.set_text_content(Some("erasure mismatch"));
                     annotation.show_error();
                 }
-                AnalysisError::UnboundReference { annotation, .. } if annotation.is_some() => {
+                CheckError::Analysis(AnalysisError::UnboundReference { annotation, .. })
+                    if annotation.is_some() =>
+                {
                     let annotation = annotation.unwrap();
                     paragraph.set_text_content(Some("unbound reference"));
                     annotation.show_error();
@@ -585,16 +588,10 @@ async fn add_scratchpad(
                                         .add_3("scratchpad", "status", "def-ok")
                                         .unwrap();
 
-                                    let evaluator = Substitution(defs.clone());
+                                    let evaluator = Inet(defs.clone());
 
                                     if term.is_complete() {
                                         let time = perf.now();
-
-                                        let term = <_ as Evaluator<_>>::evaluate(
-                                            &evaluator,
-                                            term.clear_annotation(),
-                                        )
-                                        .unwrap();
 
                                         let whelk = {
                                             let mut term = term.clone().into();
@@ -626,7 +623,9 @@ async fn add_scratchpad(
                                         console_log!("evaluate took {:.1}ms", perf.now() - time);
                                     }
                                 }
-                                Err(AnalysisError::Impossible(AnalysisTerm::Hole(_))) => {
+                                Err(CheckError::Analysis(AnalysisError::Impossible(
+                                    AnalysisTerm::Hole(_),
+                                ))) => {
                                     status.class_list().add_2("scratchpad", "status").unwrap();
                                 }
                                 Err(e) => {

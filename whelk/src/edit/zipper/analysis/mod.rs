@@ -7,6 +7,8 @@ mod equivalent;
 mod is_complete;
 mod normalize;
 mod shift;
+mod stratified;
+pub use stratified::StratificationError;
 mod substitute;
 
 pub use normalize::NormalizationError;

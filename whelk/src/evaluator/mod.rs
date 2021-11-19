@@ -1,5 +1,7 @@
 mod substitution;
 pub use substitution::Substitution;
+mod inet;
+pub use inet::Inet;
 use welkin_core::term::Term;
 
 use crate::edit::zipper::analysis::AnalysisTerm;
