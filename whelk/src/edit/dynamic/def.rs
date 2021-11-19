@@ -84,6 +84,7 @@ impl DynamicTerm<()> for Def<()> {
     fn add_ui(
         self: Box<Self>,
         sender: &Sender<()>,
+        editable: bool,
     ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
         let document = web_sys::window().unwrap().document().unwrap();
 
@@ -274,7 +275,11 @@ impl DynamicTerm<UiSection> for Def<UiSection> {
         Box::new(self.clone())
     }
 
-    fn add_ui(self: Box<Self>, _: &Sender<()>) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
+    fn add_ui(
+        self: Box<Self>,
+        _: &Sender<()>,
+        editable: bool,
+    ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
         todo!()
     }
 

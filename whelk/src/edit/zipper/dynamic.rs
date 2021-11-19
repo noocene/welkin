@@ -189,8 +189,11 @@ pub trait DynamicTerm<T> {
     where
         T: Clone;
 
-    fn add_ui(self: Box<Self>, sender: &Sender<()>)
-        -> (UiSection, Box<dyn DynamicTerm<UiSection>>);
+    fn add_ui(
+        self: Box<Self>,
+        sender: &Sender<()>,
+        editable: bool,
+    ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>);
 
     fn apply_mutations(
         self: Box<Self>,
@@ -230,8 +233,9 @@ impl<T, U: DynamicTerm<T> + ?Sized> DynamicTerm<T> for Box<U> {
     fn add_ui(
         self: Box<Self>,
         trigger_update: &Sender<()>,
+        editable: bool,
     ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
-        U::add_ui(*self, trigger_update)
+        U::add_ui(*self, trigger_update, editable)
     }
 
     fn apply_mutations(

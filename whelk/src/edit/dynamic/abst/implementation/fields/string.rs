@@ -128,7 +128,10 @@ impl HasField<String> for RootContext {
         span.set_text_content(initializer.as_ref().map(String::as_str));
 
         span.class_list().add_2("abst-field", "string").unwrap();
-        configure_contenteditable(&span);
+
+        if self.editable {
+            configure_contenteditable(&span);
+        }
 
         let focused = &mut *self.focused.borrow_mut();
 

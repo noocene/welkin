@@ -34,6 +34,7 @@ pub struct RootContext {
     needs_focus: Rc<RefCell<bool>>,
     needs_remove: Rc<RefCell<Option<Term<()>>>>,
     sender: Option<Sender<()>>,
+    editable: bool,
     is_root: bool,
 }
 
@@ -41,6 +42,7 @@ impl RootContext {
     fn new_child(&self, container: Element) -> Self {
         Self {
             fields: HashMap::new(),
+            editable: self.editable,
             container,
             focused: self.focused.clone(),
             needs_focus: self.needs_focus.clone(),
@@ -204,7 +206,10 @@ impl DynamicTerm<()> for Root {
     fn add_ui(
         mut self: Box<Self>,
         sender: &Sender<()>,
+        editable: bool,
     ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
+        self.context.borrow_mut().editable = editable;
+
         self.context
             .borrow_mut()
             .sender
@@ -277,6 +282,7 @@ impl DynamicTerm<UiSection> for Root {
     fn add_ui(
         self: Box<Self>,
         sender: &Sender<()>,
+        editable: bool,
     ) -> (UiSection, Box<dyn DynamicTerm<UiSection>>) {
         todo!()
     }
@@ -358,6 +364,7 @@ impl Root {
                 fields: HashMap::new(),
                 is_root: true,
                 sender: None,
+                editable: false,
                 needs_focus: Rc::new(RefCell::new(false)),
                 container,
                 needs_remove: Rc::new(RefCell::new(None)),

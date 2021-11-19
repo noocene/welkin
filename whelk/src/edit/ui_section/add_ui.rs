@@ -790,7 +790,7 @@ pub fn add_ui<T: Zero + Clone + 'static>(
         Term::Dynamic(cursor) => {
             let (_, term) = cursor.into_inner();
 
-            let (annotation, term) = term.add_ui(sender);
+            let (annotation, term) = term.add_ui(sender, editable);
 
             Term::Dynamic(Dynamic::new(annotation, term))
         }
