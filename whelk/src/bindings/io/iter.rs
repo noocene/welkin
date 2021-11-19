@@ -39,13 +39,17 @@ impl LoopRequest {
         }
     }
 
-    pub fn proceed<E: CoreEvaluator>(&self, evaluator: &E) -> Result<bool, ProceedError<E::Error>> {
+    pub async fn proceed<E: CoreEvaluator>(
+        &self,
+        evaluator: &E,
+    ) -> Result<bool, ProceedError<E::Error>> {
         evaluator
             .evaluate(Term::Apply {
                 erased: false,
                 argument: Box::new(self.state.clone()),
                 function: Box::new(self.predicate.clone()),
             })
+            .await
             .map_err(ProceedError::Evaluator)
             .and_then(|term| {
                 w::Bool::from_welkin(term)
@@ -56,9 +60,11 @@ impl LoopRequest {
                     .map_err(ProceedError::Bool)
             })
     }
+
     pub fn into_state(self) -> Term<String> {
         self.state
     }
+
     pub fn step<
         'a,
         E: CoreEvaluator,
@@ -84,6 +90,7 @@ impl LoopRequest {
                         ),
                         function: Box::new(self.step.clone()),
                     })
+                    .await
                     .map_err(StepError::Evaluator)?,
             )
             .map_err(StepError::Io)?

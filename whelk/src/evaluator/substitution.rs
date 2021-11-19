@@ -1,3 +1,4 @@
+use futures::future::{ready, Ready};
 use welkin_core::term::{DefinitionResult, Definitions, Term};
 
 use crate::edit::{
@@ -39,10 +40,14 @@ impl<U: Zero + Debug + Clone, T: TypedDefinitions<U>> Evaluator<U> for Substitut
 }
 
 impl<T: Definitions<String>> CoreEvaluator for Substitution<T> {
+    type Future = Ready<Result<Term<String>, Self::Error>>;
     type Error = CoreSubstitutionError;
 
-    fn evaluate(&self, mut term: Term<String>) -> Result<Term<String>, Self::Error> {
-        term.normalize(&self.0).map_err(CoreSubstitutionError)?;
-        Ok(term)
+    fn evaluate(&self, mut term: Term<String>) -> Self::Future {
+        ready(
+            term.normalize(&self.0)
+                .map_err(CoreSubstitutionError)
+                .map(move |_| term),
+        )
     }
 }

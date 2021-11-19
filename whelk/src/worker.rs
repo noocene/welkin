@@ -10,6 +10,7 @@ use welkin_core::term::{MapCache, Term};
 
 use crate::{
     edit::zipper::analysis::{AnalysisError, AnalysisTerm, StratificationError},
+    evaluator::{CoreEvaluator, Inet},
     DefWrapper, DefWrapperData,
 };
 
@@ -161,6 +162,14 @@ impl WorkerWrapper {
             .data
             .unwrap()
     }
+
+    pub async fn evaluate(&self, term: Term<String>) -> Term<String> {
+        let data = self
+            .make_request(WorkerRequestVariant::Evaluate(term))
+            .await;
+        data.data.unwrap();
+        data.evaluated.unwrap()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -168,6 +177,7 @@ pub enum WorkerRequestVariant {
     Check(AnalysisTerm<Option<u64>>, AnalysisTerm<Option<u64>>),
     Register(String, Term<String>, Term<String>),
     Initialize(DefWrapperData),
+    Evaluate(Term<String>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -181,10 +191,11 @@ pub struct WorkerResponse {
     idx: Uuid,
     inferred: Vec<(u64, AnalysisTerm<Option<u64>>)>,
     filled: Vec<(u64, AnalysisTerm<Option<u64>>)>,
+    evaluated: Option<Term<String>>,
     data: Result<(), CheckError<Option<u64>>>,
 }
 
-pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
+pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
     INITIALIZED.with(|initialized| {
         let initialized = &mut *initialized.borrow_mut();
         if !*initialized {
@@ -200,6 +211,8 @@ pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
     let worker = js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .unwrap();
+
+    let mut evaluated = None;
 
     let response = match data.variant {
         WorkerRequestVariant::Check(term, ty) => DEFS.with(|defs| {
@@ -247,11 +260,22 @@ pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
             });
             Ok(())
         }
+        WorkerRequestVariant::Evaluate(term) => {
+            let e = DEFS.with(|defs| {
+                let defs = defs.borrow();
+                let defs = defs.as_ref().unwrap();
+                let evaluator = Inet(defs.clone());
+                evaluator.evaluate(term)
+            });
+            evaluated = Some(e.await.unwrap());
+            Ok(())
+        }
     };
 
     let response = WorkerResponse {
         data: response,
         idx: data.idx,
+        evaluated,
         inferred,
         filled,
     };

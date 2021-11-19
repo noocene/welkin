@@ -28,7 +28,7 @@ pub enum FulfillmentError<G: FromAnalogue, T: FromAnalogue, E: CoreEvaluator> {
 }
 
 impl<G: FromAnalogue, T: FromAnalogue> IoRequest<G, T> {
-    pub fn fulfill<E: CoreEvaluator>(
+    pub async fn fulfill<E: CoreEvaluator>(
         self,
         response: Term<String>,
         evaluator: &E,
@@ -40,6 +40,7 @@ impl<G: FromAnalogue, T: FromAnalogue> IoRequest<G, T> {
                     argument: Box::new(response),
                     function: Box::new(self.term),
                 })
+                .await
                 .map_err(FulfillmentError::Evaluator)?,
         )
         .map_err(FulfillmentError::Io)?)

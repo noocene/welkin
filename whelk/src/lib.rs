@@ -37,7 +37,7 @@ use welkin_core::term::{DefinitionResult, MapCache, Term, TypedDefinitions};
 
 use crate::{
     edit::{add_ui, mutations::HoleMutation, UiSectionVariance},
-    evaluator::Inet,
+    evaluator::WorkerEvaluator,
     worker::{CheckError, WorkerWrapper},
 };
 
@@ -60,7 +60,10 @@ pub fn entry(terms: Vec<u8>, worker: Worker) -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub fn worker(event: MessageEvent) -> Result<(), JsValue> {
-    worker::worker(event)
+    spawn_local(async move {
+        worker::worker(event).await.unwrap();
+    });
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -588,7 +591,7 @@ async fn add_scratchpad(
                                         .add_3("scratchpad", "status", "def-ok")
                                         .unwrap();
 
-                                    let evaluator = Inet(defs.clone());
+                                    let evaluator = WorkerEvaluator(worker.clone());
 
                                     if term.is_complete() {
                                         let time = perf.now();
@@ -596,6 +599,7 @@ async fn add_scratchpad(
                                         let whelk = {
                                             let mut term = term.clone().into();
                                             term = <_ as CoreEvaluator>::evaluate(&evaluator, term)
+                                                .await
                                                 .unwrap();
                                             w::Whelk::from_welkin(term).unwrap()
                                         };
@@ -903,7 +907,7 @@ where
                             .await?;
                         if {
                             // TODO allow loops later in background
-                            request.proceed(&*evaluator)?;
+                            request.proceed(&*evaluator).await?;
                             false
                         } {
                             continue;
@@ -922,15 +926,19 @@ where
                         header: "FUL".into(),
                         content: format!("{:?}", message.clone()),
                     });
-                    let io = io.into_request().unwrap().fulfill(
-                        w::Sized::<w::String>::new {
-                            size: message.len().into(),
-                            data: message.into(),
-                        }
-                        .to_welkin()
-                        .unwrap(),
-                        &*evaluator,
-                    )?;
+                    let io = io
+                        .into_request()
+                        .unwrap()
+                        .fulfill(
+                            w::Sized::<w::String>::new {
+                                size: message.len().into(),
+                                data: message.into(),
+                            }
+                            .to_welkin()
+                            .unwrap(),
+                            &*evaluator,
+                        )
+                        .await?;
                     run_io(
                         io,
                         &*push_paragraph,
@@ -950,7 +958,8 @@ where
                     let io = io
                         .into_request()
                         .unwrap()
-                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
+                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)
+                        .await?;
                     run_io(
                         io,
                         &*push_paragraph,
@@ -983,7 +992,8 @@ where
                     let io = io
                         .into_request()
                         .unwrap()
-                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)?;
+                        .fulfill(w::Unit::new.to_welkin().unwrap(), &*evaluator)
+                        .await?;
                     run_io(
                         io,
                         &*push_paragraph,

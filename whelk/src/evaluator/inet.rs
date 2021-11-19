@@ -1,3 +1,4 @@
+use futures::future::{ready, Ready};
 use welkin_core::{
     net::{Index, Net, VisitNetExt},
     term::{DefinitionResult, Definitions, Term},
@@ -30,15 +31,16 @@ pub struct InetError(NormalizationError);
 pub struct CoreInetError(welkin_core::term::NormalizationError);
 
 impl<T: Definitions<String>> CoreEvaluator for Inet<T> {
+    type Future = Ready<Result<Term<String>, Self::Error>>;
     type Error = CoreInetError;
 
-    fn evaluate(&self, mut term: Term<String>) -> Result<Term<String>, Self::Error> {
+    fn evaluate(&self, mut term: Term<String>) -> Self::Future {
         let mut net = term
             .stratified(&self.0)
             .unwrap()
             .into_net::<Net<u32>>()
             .unwrap();
         net.reduce_all();
-        Ok(net.read_term(Index(0)))
+        ready(Ok(net.read_term(Index(0))))
     }
 }
