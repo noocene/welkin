@@ -5,7 +5,6 @@ macro_rules! console_log {
 
 use std::{cell::RefCell, collections::HashMap, error::Error, mem::replace, panic, rc::Rc};
 
-use anyhow::anyhow;
 use async_recursion::async_recursion;
 use bindings::{io::iter::LoopRequest, w};
 use edit::{
@@ -614,24 +613,86 @@ async fn add_scratchpad(
 
                                         output.set_inner_html("");
 
-                                        if let Err(_) = run_io(
+                                        let mut new_defs = vec![];
+
+                                        run_io(
                                             io,
                                             &|block| push_paragraph(block, &output),
                                             &mut stream::pending(),
                                             &defs,
                                             &evaluator,
                                             &worker,
+                                            &mut new_defs,
                                         )
                                         .await
-                                        {
-                                            push_paragraph(
-                                                Block::Info {
-                                                    header: "TERMINATE".into(),
-                                                    content: "".into(),
-                                                },
-                                                &output,
-                                            );
+                                        .unwrap();
+
+                                        let mut errors = vec![];
+
+                                        for (name, ty, term) in &new_defs {
+                                            let mut t_error = None;
+
+                                            if let Err(e) = worker
+                                                .check(
+                                                    ty.clone().map_annotation(&mut |_| None::<()>),
+                                                    AnalysisTerm::Universe(None),
+                                                    |annotation, ty| {},
+                                                    |annotation, ty| {},
+                                                )
+                                                .await
+                                            {
+                                                t_error = Some(Block::Error {
+                                                    data: e.map_annotation(&mut |_| None::<_>),
+                                                });
+                                            }
+
+                                            if t_error.is_none() {
+                                                if let Err(e) = worker
+                                                    .check(
+                                                        term.clone()
+                                                            .map_annotation(&mut |_| None::<()>),
+                                                        ty.clone()
+                                                            .map_annotation(&mut |_| None::<()>),
+                                                        |annotation, ty| {},
+                                                        |annotation, ty| {},
+                                                    )
+                                                    .await
+                                                {
+                                                    t_error = Some(Block::Error {
+                                                        data: e.map_annotation(&mut |_| None::<_>),
+                                                    });
+                                                }
+                                            }
+
+                                            if let Some(e) = t_error {
+                                                errors.push(Block::Info {
+                                                    header: format!("DEF ERR"),
+                                                    content: format!("{:?}", name.clone()),
+                                                });
+                                                errors.push(e);
+                                            }
                                         }
+
+                                        let errored = !errors.is_empty();
+
+                                        for error in errors {
+                                            push_paragraph(error, &output);
+                                        }
+
+                                        if !errored {
+                                            for (name, ty, term) in new_defs {
+                                                let term: Term<String> = term.into();
+                                                let ty: Term<String> = ty.into();
+
+                                                defs.0.borrow_mut().insert(
+                                                    name.clone(),
+                                                    (ty.clone(), term.clone()),
+                                                );
+
+                                                worker.register(name, ty, term).await;
+                                            }
+                                        }
+
                                         console_log!("evaluate took {:.1}ms", perf.now() - time);
                                     }
                                 }
@@ -867,6 +928,7 @@ async fn run_io<
     defs: &DefWrapper,
     evaluator: &E,
     worker: &WorkerWrapper,
+    new_defs: &mut Vec<(String, AnalysisTerm<()>, AnalysisTerm<()>)>,
 ) -> Result<D, anyhow::Error>
 where
     E::Error: Error + Send + Sync,
@@ -909,6 +971,7 @@ where
                                     &*defs,
                                     &*evaluator,
                                     &*worker,
+                                    &mut *new_defs,
                                 )
                                 .await
                             })
@@ -954,6 +1017,7 @@ where
                         &*defs,
                         &*evaluator,
                         &*worker,
+                        &mut *new_defs,
                     )
                     .await
                 }
@@ -975,6 +1039,7 @@ where
                         &*defs,
                         &*evaluator,
                         &*worker,
+                        &mut *new_defs,
                     )
                     .await
                 }
@@ -986,59 +1051,12 @@ where
                     let term: AnalysisTerm<()> = term.clone().into();
                     let ty: AnalysisTerm<()> = r#type.clone().into();
 
-                    let mut errors = vec![];
-
-                    if let Err(e) = worker
-                        .check(
-                            ty.clone().map_annotation(&mut |_| None::<()>),
-                            AnalysisTerm::Universe(None),
-                            |annotation, ty| {},
-                            |annotation, ty| {},
-                        )
-                        .await
-                    {
-                        errors.push(Block::Error {
-                            data: e.map_annotation(&mut |_| None::<_>),
-                        });
-                    }
-
-                    if let Err(e) = worker
-                        .check(
-                            term.clone().map_annotation(&mut |_| None::<()>),
-                            ty.clone().map_annotation(&mut |_| None::<()>),
-                            |annotation, ty| {},
-                            |annotation, ty| {},
-                        )
-                        .await
-                    {
-                        errors.push(Block::Error {
-                            data: e.map_annotation(&mut |_| None::<_>),
-                        });
-                    }
+                    new_defs.push((name.clone(), term, ty));
 
                     push_paragraph(Block::Info {
-                        header: format!("DEF {}", if errors.is_empty() { "OK" } else { "ERR" }),
-                        content: format!("{:?}", name.clone()),
+                        header: "DEF".into(),
+                        content: name,
                     });
-
-                    let errored = !errors.is_empty();
-
-                    for error in errors {
-                        push_paragraph(error);
-                    }
-
-                    if errored {
-                        Err(anyhow!("type error"))?;
-                    }
-
-                    let term: Term<String> = term.into();
-                    let ty: Term<String> = ty.into();
-
-                    defs.0
-                        .borrow_mut()
-                        .insert(name.clone(), (ty.clone(), term.clone()));
-
-                    worker.register(name, ty, term).await;
 
                     let io = io
                         .into_request()
@@ -1052,6 +1070,7 @@ where
                         &*defs,
                         &*evaluator,
                         &*worker,
+                        &mut *new_defs,
                     )
                     .await
                 }
