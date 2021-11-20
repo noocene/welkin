@@ -1051,7 +1051,7 @@ where
                     let term: AnalysisTerm<()> = term.clone().into();
                     let ty: AnalysisTerm<()> = r#type.clone().into();
 
-                    new_defs.push((name.clone(), term, ty));
+                    new_defs.push((name.clone(), ty, term));
 
                     push_paragraph(Block::Info {
                         header: "DEF".into(),
