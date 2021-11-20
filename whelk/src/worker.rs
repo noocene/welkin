@@ -9,7 +9,12 @@ use web_sys::{DedicatedWorkerGlobalScope, MessageEvent, Worker};
 use welkin_core::term::{MapCache, Term};
 
 use crate::{
-    edit::zipper::analysis::{AnalysisError, AnalysisTerm, StratificationError},
+    edit::{
+        dynamic::abst::controls::Zero,
+        zipper::analysis::{
+            AnalysisError, AnalysisTerm, DefinitionResult, StratificationError, TypedDefinitions,
+        },
+    },
     evaluator::{CoreEvaluator, Inet},
     DefWrapper, DefWrapperData,
 };
@@ -18,6 +23,7 @@ thread_local! {
     pub static DEFS: RefCell<Option<DefWrapper>> = RefCell::new(None);
     pub static CACHE: RefCell<MapCache> = RefCell::new(MapCache::new());
     pub static INITIALIZED: RefCell<bool> = RefCell::new(false);
+    pub static TEMP_DEFS: RefCell<HashMap<Uuid, Vec<(String, Term<String>, Term<String>)>>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone)]
@@ -53,6 +59,26 @@ impl<T> From<AnalysisError<T>> for CheckError<T> {
 impl<T> From<StratificationError> for CheckError<T> {
     fn from(e: StratificationError) -> Self {
         CheckError::Stratification(e)
+    }
+}
+
+pub struct TempDefs(Uuid);
+
+pub struct MergeDefs<'a>(
+    &'a DefWrapper,
+    &'a Option<Vec<(String, Term<String>, Term<String>)>>,
+);
+
+impl<'a, T: Zero> TypedDefinitions<T> for MergeDefs<'a> {
+    fn get_typed(
+        &self,
+        name: &str,
+    ) -> Option<DefinitionResult<(AnalysisTerm<T>, AnalysisTerm<T>)>> {
+        self.1
+            .as_ref()
+            .and_then(|defs| defs.iter().find(|(n, _, _)| n.as_str() == name).cloned())
+            .map(|(_, ty, term)| DefinitionResult::Owned((ty.into(), term.into())))
+            .or_else(|| self.0.get_typed(name))
     }
 }
 
@@ -103,6 +129,7 @@ impl WorkerWrapper {
         ty: AnalysisTerm<Option<T>>,
         mut annotate: impl FnMut(T, AnalysisTerm<Option<T>>),
         mut fill_hole: impl FnMut(T, AnalysisTerm<Option<T>>),
+        temp_defs: Option<&TempDefs>,
     ) -> Result<(), CheckError<Option<T>>> {
         let mut annotations = HashMap::new();
         let resp = self
@@ -121,6 +148,7 @@ impl WorkerWrapper {
                         idx as _
                     })
                 }),
+                temp_defs.map(|a| a.0.clone()),
             ))
             .await;
 
@@ -178,15 +206,36 @@ impl WorkerWrapper {
         data.data.unwrap();
         data.evaluated.unwrap()
     }
+
+    pub async fn register_temp(&self, defs: Vec<(String, Term<String>, Term<String>)>) -> TempDefs {
+        let data = self
+            .make_request(WorkerRequestVariant::TempDefs(defs))
+            .await;
+        data.data.unwrap();
+        TempDefs(data.id.unwrap())
+    }
+
+    pub async fn clear_temp(&self, defs: TempDefs) {
+        self.make_request(WorkerRequestVariant::ClearTempDefs(defs.0))
+            .await
+            .data
+            .unwrap();
+    }
 }
 
 #[derive(Serialize, Deserialize)]
 pub enum WorkerRequestVariant {
-    Check(AnalysisTerm<Option<u64>>, AnalysisTerm<Option<u64>>),
+    Check(
+        AnalysisTerm<Option<u64>>,
+        AnalysisTerm<Option<u64>>,
+        Option<Uuid>,
+    ),
     Register(String, Term<String>, Term<String>),
     Initialize(DefWrapperData),
     Evaluate(Term<String>),
     ExpandEvaluate(AnalysisTerm<()>),
+    TempDefs(Vec<(String, Term<String>, Term<String>)>),
+    ClearTempDefs(Uuid),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -202,6 +251,7 @@ pub struct WorkerResponse {
     filled: Vec<(u64, AnalysisTerm<Option<u64>>)>,
     evaluated: Option<Term<String>>,
     data: Result<(), CheckError<Option<u64>>>,
+    id: Option<Uuid>,
 }
 
 pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
@@ -222,36 +272,50 @@ pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
         .unwrap();
 
     let mut evaluated = None;
+    let mut id = None;
 
     let response = match data.variant {
-        WorkerRequestVariant::Check(term, ty) => DEFS.with(|defs| {
-            CACHE.with(|cache| {
-                let defs = defs.borrow();
-                let defs = defs.as_ref().unwrap();
-                let cache = &mut *cache.borrow_mut();
-                term.check_in(
-                    &ty,
-                    defs,
-                    &mut |annotation, ty| {
-                        if let Some(annotation) = annotation {
-                            inferred.push((*annotation, ty.clone()))
-                        }
-                    },
-                    &mut |annotation, ty| {
-                        if let Some(annotation) = annotation {
-                            filled.push((*annotation, ty.clone()))
-                        }
-                    },
-                    cache,
-                )?;
-                term.is_stratified()?;
-                if term.is_recursive_in(defs) {
-                    Err(CheckError::Recursive)
-                } else {
-                    Ok(())
-                }
-            })
-        }),
+        WorkerRequestVariant::Check(term, ty, temp_defs) => {
+            let temp_id = temp_defs.clone();
+            let temp_defs =
+                temp_defs.map(|id| TEMP_DEFS.with(|defs| defs.borrow_mut().remove(&id).unwrap()));
+
+            let res = DEFS.with(|defs| {
+                CACHE.with(|cache| {
+                    let defs = defs.borrow();
+                    let defs = defs.as_ref().unwrap();
+                    let cache = &mut *cache.borrow_mut();
+                    let defs = MergeDefs(defs, &temp_defs);
+                    term.check_in(
+                        &ty,
+                        &defs,
+                        &mut |annotation, ty| {
+                            if let Some(annotation) = annotation {
+                                inferred.push((*annotation, ty.clone()))
+                            }
+                        },
+                        &mut |annotation, ty| {
+                            if let Some(annotation) = annotation {
+                                filled.push((*annotation, ty.clone()))
+                            }
+                        },
+                        cache,
+                    )?;
+                    term.is_stratified()?;
+                    if term.is_recursive_in(&defs) {
+                        Err(CheckError::Recursive)
+                    } else {
+                        Ok(())
+                    }
+                })
+            });
+
+            if let Some(temp_id) = temp_id {
+                TEMP_DEFS.with(move |defs| defs.borrow_mut().insert(temp_id, temp_defs.unwrap()));
+            }
+
+            res
+        }
         WorkerRequestVariant::Initialize(data) => {
             DEFS.with(|defs| {
                 *defs.borrow_mut() = Some(data.into());
@@ -290,6 +354,20 @@ pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
             evaluated = Some(e.await.unwrap());
             Ok(())
         }
+        WorkerRequestVariant::TempDefs(temp_defs) => {
+            let uuid = Uuid::new_v4();
+            id = Some(uuid.clone());
+            TEMP_DEFS.with(|defs| {
+                defs.borrow_mut().insert(uuid, temp_defs);
+            });
+            Ok(())
+        }
+        WorkerRequestVariant::ClearTempDefs(uuid) => {
+            TEMP_DEFS.with(|defs| {
+                defs.borrow_mut().remove(&uuid);
+            });
+            Ok(())
+        }
     };
 
     let response = WorkerResponse {
@@ -298,6 +376,7 @@ pub async fn worker(event: MessageEvent) -> Result<(), JsValue> {
         evaluated,
         inferred,
         filled,
+        id,
     };
 
     let data = bincode::serialize(&response).unwrap();

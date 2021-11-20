@@ -540,6 +540,7 @@ async fn add_scratchpad(
                                                 Some(ty.clone().clear_annotation());
                                         }
                                     },
+                                    None,
                                 )
                                 .await;
                             console_log!("check took {:.1}ms", perf.now() - time);
@@ -629,6 +630,20 @@ async fn add_scratchpad(
 
                                         let mut errors = vec![];
 
+                                        let temp_defs: Vec<(_, Term<String>, Term<String>)> =
+                                            new_defs
+                                                .iter()
+                                                .map(|(name, ty, term)| {
+                                                    (
+                                                        name.clone(),
+                                                        ty.clone().into(),
+                                                        term.clone().into(),
+                                                    )
+                                                })
+                                                .collect();
+
+                                        let t_defs = worker.register_temp(temp_defs).await;
+
                                         for (name, ty, term) in &new_defs {
                                             let mut t_error = None;
 
@@ -638,6 +653,7 @@ async fn add_scratchpad(
                                                     AnalysisTerm::Universe(None),
                                                     |annotation, ty| {},
                                                     |annotation, ty| {},
+                                                    Some(&t_defs),
                                                 )
                                                 .await
                                             {
@@ -655,6 +671,7 @@ async fn add_scratchpad(
                                                             .map_annotation(&mut |_| None::<()>),
                                                         |annotation, ty| {},
                                                         |annotation, ty| {},
+                                                        Some(&t_defs),
                                                     )
                                                     .await
                                                 {
@@ -672,6 +689,8 @@ async fn add_scratchpad(
                                                 errors.push(e);
                                             }
                                         }
+
+                                        worker.clear_temp(t_defs).await;
 
                                         let errored = !errors.is_empty();
 
