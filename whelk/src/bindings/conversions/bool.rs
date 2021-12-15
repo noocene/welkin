@@ -8,3 +8,13 @@ impl From<w::Bool> for bool {
         }
     }
 }
+
+impl From<bool> for w::Bool {
+    fn from(bool: bool) -> Self {
+        if bool {
+            w::Bool::r#true
+        } else {
+            w::Bool::r#false
+        }
+    }
+}

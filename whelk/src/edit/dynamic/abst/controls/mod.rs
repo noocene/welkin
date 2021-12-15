@@ -2,12 +2,16 @@ mod adt;
 pub use adt::*;
 mod invoke;
 mod literal;
+mod quote;
 mod variable;
 pub use invoke::*;
 pub use literal::*;
+pub use quote::*;
 pub use variable::*;
 
 use mincodec::MinCodec;
+
+use crate::edit::zipper::{Term, TermData};
 
 use super::{
     AbstractDynamic, Container, DynamicContext, FieldFilter, FieldFocus, FieldRead, FieldSetColor,
@@ -23,12 +27,14 @@ pub enum ControlData {
     StringLiteral(String),
     SizeLiteral(usize),
     Variable(usize),
+    Quote(TermData),
 }
 
 impl ControlData {
-    pub fn to_control<T: DynamicContext + Replace + HasStatic + HasContainer<VStack> + HasInitializedField<String> + ?Sized + 'static>(self) -> Box<dyn AbstractDynamic<T>>
+    pub fn to_control<T: DynamicContext + Replace + HasStatic + HasContainer<VStack> + HasInitializedField<String> + HasInitializedField<Term<()>> + ?Sized + 'static>(self) -> Box<dyn AbstractDynamic<T>>
         where
             <T as HasField<String>>::Field: FieldRead<Data = String> + FieldSetColor + FieldFilter<Element = char> + FieldTriggersAppend + FieldTriggersRemove,
+            <T as HasField<Term<()>>>::Field: FieldRead<Data = Term<()>> + FieldTriggersRemove,
             <T as HasField<Static>>::Field: FieldSetColor,
             <T as HasField<VStack>>::Field: Container,
             <<T as HasField<VStack>>::Field as Container>::Context: HasContainer<Wrapper>,
@@ -45,6 +51,7 @@ impl ControlData {
             ControlData::StringLiteral(data) => Box::new(StringLiteral::from(data)),
             ControlData::SizeLiteral(size) => Box::new(SizeLiteral::from(size)),
             ControlData::Variable(size) => Box::new(Variable::new(size)),
+            ControlData::Quote(data) => Box::new(Quote::from(Term::<()>::from(data))),
         }
     }
 }

@@ -7,7 +7,7 @@ use crate::edit::{
     zipper::{dynamic::Dynamic, Term},
 };
 
-use super::{ControlData, Literal};
+use super::{ControlData, Literal, Quote};
 
 pub struct Invoke<T: HasInitializedField<String> + HasStatic + ?Sized> {
     field: Option<<T as HasField<String>>::Field>,
@@ -67,6 +67,7 @@ where
                 "lit" | "literal" => {
                     Some(Term::Dynamic(Dynamic::new((), Root::new(Literal::new()))))
                 }
+                "quote" => Some(Term::Dynamic(Dynamic::new((), Root::new(Quote::new())))),
                 _ => None,
             } {
                 context.replace(term);

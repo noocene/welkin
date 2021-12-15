@@ -4,9 +4,11 @@ use web_sys::Element;
 mod container;
 mod r#static;
 mod string;
+mod term;
 pub use container::*;
 pub use r#static::*;
 pub use string::*;
+pub use term::*;
 
 pub trait FieldContextData {
     type Data;
@@ -15,6 +17,16 @@ pub trait FieldContextData {
 pub struct RootFieldContext<T: FieldContextData> {
     data: T::Data,
     closures: Vec<Closure<dyn FnMut(JsValue)>>,
+}
+
+impl<T: FieldContextData> RootFieldContext<T> {
+    pub fn data(&self) -> &T::Data {
+        &self.data
+    }
+
+    pub fn data_mut(&mut self) -> &mut T::Data {
+        &mut self.data
+    }
 }
 
 pub enum RootFieldData {
@@ -27,6 +39,9 @@ pub enum RootFieldData {
     Container {
         context: RootFieldContext<RootContainerField>,
     },
+    Term {
+        context: RootFieldContext<RootTermField>,
+    },
 }
 
 impl RootFieldData {
@@ -35,6 +50,7 @@ impl RootFieldData {
             RootFieldData::String { context } => context.data.element(),
             RootFieldData::Static { context } => context.data.element(),
             RootFieldData::Container { context } => context.data.element(),
+            RootFieldData::Term { context } => context.data.element(),
         }
     }
 }

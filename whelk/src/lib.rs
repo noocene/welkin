@@ -328,8 +328,8 @@ async fn add_scratchpad(
                 });
             }
         },
-    )
-    .await?;
+        true,
+    )?;
 
     let output = pad.output.clone();
 
@@ -860,10 +860,11 @@ impl ScratchpadContainer {
     }
 }
 
-async fn make_scratchpad(
+fn make_scratchpad(
     term: zipper::Term,
     mut listener: impl FnMut(JsValue) + 'static,
     mut focus_listener: impl FnMut(JsValue) + 'static,
+    make_status: bool,
 ) -> Result<(Sender<()>, ScratchpadContainer), JsValue> {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
@@ -877,16 +878,23 @@ async fn make_scratchpad(
     let content = document.create_element("div")?;
     content.class_list().add_2("scratchpad", "content")?;
 
-    let status = document.create_element("div")?;
-    status.class_list().add_2("scratchpad", "status")?;
-
     let output = document.create_element("div")?;
-    output.class_list().add_2("scratchpad", "output")?;
 
     wrapper.append_child(&inner)?;
     inner.append_child(&content)?;
-    inner.append_child(&status)?;
-    wrapper.append_child(&output)?;
+
+    let status = document.create_element("div")?;
+
+    if make_status {
+        status.class_list().add_2("scratchpad", "status")?;
+        inner.append_child(&status)?;
+
+        output.class_list().add_2("scratchpad", "output")?;
+        wrapper.append_child(&output)?;
+
+        inner.class_list().add_1("root")?;
+        content.class_list().add_1("root")?;
+    }
 
     let (s, mut pad) = Scratchpad::new(term, content.into());
 
